@@ -40,9 +40,13 @@ Set the `PYTHON` environment variable to pick the interpreter used to create the
 _To be written._
 
 ## How the project works
+_To be written._
 
 # Interpreting EMG signals
+_To be written._
 
 # Control loop
+_To be written._
 
 # Actuation
+_To be written._
