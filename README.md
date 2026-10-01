@@ -11,7 +11,7 @@ An adaptive hand exoskeleton project for Parkinsonian tremor suppression, using 
 
 ## Requirements
 
-- Python 3.10 or newer
+- Python 3.12 or newer
 
 ## How to run
 

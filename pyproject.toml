@@ -3,7 +3,7 @@ name = "finger_exoskeleton"
 version = "0.1.0"
 description = "Adaptive hand exoskeleton for Parkinsonian tremor suppression"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 dependencies = []
 
 [project.optional-dependencies]
@@ -13,6 +13,7 @@ dev = [
     "mypy",
     "flake8",
     "pylint",
+    "scipy-stubs",
 ]
 
 [tool.pytest.ini_options]
@@ -21,13 +22,13 @@ pythonpath = ["."]
 addopts = "-ra"
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.12"
 files = ["main_sensor.py", "source", "tests"]
 strict = true
 warn_unused_configs = true
 
 [tool.pylint.main]
-py-version = "3.10"
+py-version = "3.12"
 ignore-paths = ["^\\.venv/.*$"]
 
 [tool.pylint.format]

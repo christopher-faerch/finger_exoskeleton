@@ -1,5 +1,7 @@
+-r requirements.txt
 pytest
 pytest-cov
 mypy
 flake8
 pylint
+scipy-stubs
