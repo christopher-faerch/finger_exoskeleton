@@ -4,7 +4,9 @@ version = "0.1.0"
 description = "Adaptive hand exoskeleton for Parkinsonian tremor suppression"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = []
+dependencies = [
+    "dynamixel-sdk",
+]
 
 [project.optional-dependencies]
 dev = [
