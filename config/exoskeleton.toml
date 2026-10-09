@@ -1,0 +1,174 @@
+# Configuration for the real-time EMG -> exoskeleton pipeline (run_exoskeleton.py).
+#
+# Values marked PROVISIONAL are not specified by docs/Detailed Description.pdf or
+# the Delsys documentation. They are starting points that must be tuned per user
+# and verified on hardware.
+
+# ---------------------------------------------------------------------------
+# EMG channels. Each channel has a name, a role and where to find it:
+#   role           "flexor" channels drive grasp detection (design doc 6.5, 8.3);
+#                  all channels are used for tremor detection.
+#   trigno_slot    TCU sensor slot (1-16) for the live Delsys backend.
+#   recorded_column  Column index in the recorded CSV.
+#
+# The planned montage (design doc 7.2 / 8.3) is FDS, EDC, FDI and APB.
+# recorded_column follows the Ozdemir et al. dataset (source/import_data.py):
+# 0 = ECU, 1 = FCU, 2 = ECR, 3 = FCR. The recorded data comes from these forearm
+# muscles, not from the planned montage, so the names are only labels there.
+# ---------------------------------------------------------------------------
+[[channels]]
+name = "FDS"
+role = "flexor"
+trigno_slot = 1
+recorded_column = 1   # dataset FCU (flexor)
+
+[[channels]]
+name = "EDC"
+role = "extensor"
+trigno_slot = 2
+recorded_column = 0   # dataset ECU (extensor)
+
+[[channels]]
+name = "FDI"
+role = "flexor"
+trigno_slot = 3
+recorded_column = 3   # dataset FCR (flexor, already filtered in the raw file)
+
+[[channels]]
+name = "APB"
+role = "extensor"
+trigno_slot = 4
+recorded_column = 2   # dataset ECR (extensor)
+
+# ---------------------------------------------------------------------------
+# Live Delsys Trigno (DS-T03 / SP-W02 / SP-W06, Trigno Avanti) through the
+# Trigno Control Utility (TCU) TCP/IP SDK, Delsys MAN-025-3-5.
+# ---------------------------------------------------------------------------
+[trigno]
+host = "127.0.0.1"
+command_port = 50040          # SDK 6.1
+emg_port = 50043              # SDK 6.1: EMG Data port, 16 channels
+channels_on_port = 16         # SDK 6.1: data channels on the EMG Data port
+connect_timeout_s = 3.0
+command_timeout_s = 2.0
+data_timeout_s = 0.5          # no data for this long -> SourceTimeoutError
+# SDK 6.1.3 shows STARTINDEX as 0-based (slot 1 -> 0, slot 7 -> 8) but the
+# appendix example shows "1" for slot 1. 0 follows the detailed example.
+# VERIFY ON HARDWARE (see README).
+start_index_base = 0
+required_units = "Volts"      # SDK appendix example reply to "SENSOR n CHANNEL m UNITS?"
+# If set (> 0), refuse to start when the TCU reports another EMG sample rate.
+expected_sample_rate_hz = 0.0
+
+[trigno.calibration]
+baseline_window_s = [0.5, 3.0]       # user at rest
+reference_window_s = [3.5, 6.5]      # user performs the reference grip
+
+# ---------------------------------------------------------------------------
+# Recorded EMG (CSV, one column per channel, in mV).
+# ---------------------------------------------------------------------------
+[recorded]
+file = "10_raw.csv"           # relative to data/sEMG_online, or an absolute path
+sample_rate_hz = 2000.0       # dataset paper: 2 kHz
+block_size = 27               # samples per block, matching a Trigno 13.5 ms frame at 2 kHz
+loop = true
+realtime = true
+
+[recorded.calibration]
+# Dataset timeline (paper Fig. 4): rest 0-4 s, then gestures until 104 s.
+baseline_window_s = [0.5, 3.5]
+reference_window_s = [4.0, 104.0]
+
+# ---------------------------------------------------------------------------
+# Synthetic EMG (no hardware). Scenario in source/sensor.py: rest,
+# reference contraction, then repeating cycles of grasp, grasp with 5 Hz
+# tremor, extension without grasp and rest tremor without grasp.
+# ---------------------------------------------------------------------------
+[synthetic]
+sample_rate_hz = 2000.0
+block_size = 27
+seed = 1
+realtime = true
+rest_noise_mv = 0.005         # RMS at rest
+max_contraction_mv = 0.4      # RMS at full drive
+tremor_frequency_hz = 5.0     # design doc 2.1: PD tremor 4-6 Hz
+powerline_mv = 0.002          # 50 Hz interference amplitude
+powerline_hz = 50.0
+
+[synthetic.calibration]
+baseline_window_s = [0.5, 2.5]
+reference_window_s = [3.3, 4.7]
+
+# ---------------------------------------------------------------------------
+# Default calibration (used when the source has no override above).
+# ---------------------------------------------------------------------------
+[calibration]
+baseline_window_s = [0.5, 3.0]
+reference_window_s = [3.5, 6.5]
+reference_percentile = 95.0   # PROVISIONAL
+min_reference_ratio = 3.0     # PROVISIONAL: reference must exceed baseline this many times
+
+# ---------------------------------------------------------------------------
+# Streaming signal processing (design doc 7.4). All filters are causal.
+# ---------------------------------------------------------------------------
+[processing]
+bandpass_low_hz = 20.0
+bandpass_high_hz = 450.0
+bandpass_order = 4
+notch_enabled = true
+notch_hz = 50.0               # Europe; 60.0 in the Americas
+notch_quality = 30.0
+slow_window_s = 0.2           # intent envelope, design doc 7.4: 150-250 ms
+fast_cutoff_hz = 10.0         # tremor envelope, design doc 7.4: 8-10 Hz low-pass
+tremor_band_hz = [4.0, 6.0]   # design doc 8.1 option C: 4-6 Hz band power
+tremor_window_s = 0.5         # PROVISIONAL
+# Envelope fluctuation band for the tremor ratio (rhythmicity, design doc 7.7):
+# ratio = 4-6 Hz amplitude / 1-9 Hz amplitude of the fast envelope.
+rhythm_band_hz = [1.0, 9.0]   # PROVISIONAL
+
+# ---------------------------------------------------------------------------
+# Controller (design doc 8.1 option C and 8.4): idle -> grasp-armed -> stiffened.
+# Activation values are normalized: 0 = rest baseline, 1 = reference contraction.
+# ---------------------------------------------------------------------------
+[controller]
+grasp_on_threshold = 0.25     # PROVISIONAL
+grasp_off_threshold = 0.15    # PROVISIONAL (hysteresis: must be < on)
+grasp_on_time_s = 0.10        # PROVISIONAL
+grasp_off_time_s = 0.30       # PROVISIONAL
+tremor_on_threshold = 0.15    # PROVISIONAL
+tremor_off_threshold = 0.08   # PROVISIONAL (hysteresis: must be < on)
+# Engage only when the tremor-band fluctuation is rhythmic: ~1 for a narrow
+# 4-6 Hz peak, ~0.5 for broadband voluntary fluctuation. 0 disables the gate.
+# PROVISIONAL: on the healthy recording 10_raw.csv this gate reduced candidate
+# tremor during grasps from 25 % to 3 % of the time.
+tremor_min_ratio = 0.8
+# Release when the ratio stays below this for tremor_off_time_s (hysteresis on
+# rhythmicity). PROVISIONAL. Set to 0 to release on amplitude only.
+tremor_off_ratio = 0.6
+tremor_on_time_s = 0.05       # design doc 8.4: engage within tens of ms
+tremor_off_time_s = 0.75      # design doc 8.4: release over 0.5-1 s
+engage_stiffness = 0.3        # PROVISIONAL: stiffness when tremor is first detected
+stiffness_gain = 2.0          # PROVISIONAL: extra stiffness per unit tremor above the off threshold
+max_stiffness = 1.0           # command ceiling, at most 1.0
+engage_rate_per_s = 20.0      # PROVISIONAL: max increase of the command per second
+release_rate_per_s = 1.5      # PROVISIONAL: max decrease per second (~0.7 s from 1 to 0)
+
+# ---------------------------------------------------------------------------
+# Software safety. NOT sufficient for physical actuation: see docs/SAFETY.md.
+# ---------------------------------------------------------------------------
+[safety]
+stale_data_timeout_s = 0.15   # no new EMG for this long -> STALE_DATA fault
+actuator_watchdog_timeout_s = 0.1
+max_reconnect_attempts = 3
+reconnect_delay_s = 1.0
+
+[runtime]
+control_rate_hz = 150.0       # design doc 8.4: 100-200 Hz
+queue_size_blocks = 64        # ~0.9 s of 13.5 ms blocks; oldest dropped when full
+monitor_seconds = 5.0
+command_log_size = 100000     # commands kept in memory (all are streamed to the CSV log)
+
+[actuator]
+# Only "dry_run" exists. No physical actuator protocol is documented, so
+# physical actuation cannot be enabled from configuration.
+backend = "dry_run"

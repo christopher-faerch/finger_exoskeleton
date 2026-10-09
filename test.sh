@@ -25,6 +25,7 @@ run() {
 
 run flake8 .
 run pylint main_sensor.py source tests # If more main's should be tested add a similar line. 
+run pylint run_exoskeleton.py
 run mypy
 run pytest
 

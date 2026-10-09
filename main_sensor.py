@@ -51,11 +51,11 @@ def flitered_vs_raw() -> None:
     ]
 
     tol = 0.001
-    max_diff = 0
+    max_diff = 0.0
     cnt = 0
     for data in difference.data:
-        if data > tol: 
-            cnt += 1 
+        if data > tol:
+            cnt += 1
         if abs(data) > abs(max_diff):
             max_diff = data
 

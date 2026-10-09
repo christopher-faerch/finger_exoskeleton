@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Adaptive hand exoskeleton for Parkinsonian tremor suppression"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = ["numpy", "scipy", "matplotlib"]
 
 [project.optional-dependencies]
 dev = [
@@ -23,7 +23,7 @@ addopts = "-ra"
 
 [tool.mypy]
 python_version = "3.12"
-files = ["main_sensor.py", "source", "tests"]
+files = ["main_sensor.py", "run_exoskeleton.py", "source", "tests"]
 strict = true
 warn_unused_configs = true
 
@@ -33,6 +33,13 @@ ignore-paths = ["^\\.venv/.*$"]
 
 [tool.pylint.format]
 max-line-length = 100
+
+[tool.pylint.design]
+# Configuration dataclasses and pipeline components carry many settings
+max-attributes = 20
+max-args = 7
+max-positional-arguments = 7
+max-branches = 15
 
 [tool.pylint."messages control"]
 disable = [

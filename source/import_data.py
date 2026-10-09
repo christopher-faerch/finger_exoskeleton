@@ -89,3 +89,32 @@ class EMGData:
 
         self.data = data
         return True
+
+
+def resolve_data_file(name: str | Path) -> Path:
+    """An absolute path is used as is; a bare name is looked up in DATA_PATH."""
+    path = Path(name)
+    return path if path.is_absolute() else DATA_PATH / path
+
+
+def load_columns(name: str | Path, columns: list[int]) -> list[list[float]]:
+    """
+    Load several CSV columns in one pass, in the order given (one list per column).
+    A non-numeric first row is skipped as a header, like EMGData.load_from_file.
+    Raises FileNotFoundError if the file is missing.
+    """
+    file_path = resolve_data_file(name)
+    data: list[list[float]] = [[] for _ in columns]
+
+    with open(file_path, "r", newline="", encoding="utf-8") as file:
+        for row_number, row in enumerate(csv.reader(file)):
+            try:
+                values = [float(row[column]) for column in columns]
+            except ValueError:
+                if row_number == 0:
+                    continue
+                raise
+            for channel, value in zip(data, values):
+                channel.append(value)
+
+    return data
