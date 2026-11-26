@@ -23,8 +23,8 @@ addopts = "-ra"
 
 [tool.mypy]
 python_version = "3.12"
-files = ["run_emg.py", "train_gru.py", "evaluate_gru.py", "plot_recording.py", "settings.py",
-         "source", "tests"]
+files = ["run_emg.py", "train_gru.py", "evaluate_gru.py", "evaluate_injection.py",
+         "plot_recording.py", "settings.py", "source", "tests"]
 # Every function has type hints, but plain ones (np.ndarray, dict) are fine
 disallow_untyped_defs = true
 explicit_package_bases = true

@@ -1,0 +1,77 @@
+% Method 1: traditional signal processing (DSP). Target length: at most one page.
+% Implementation: source/signal_processing.py, source/calibration.py,
+% source/stiffness_controller.py; all parameter values are in settings.py.
+\section{EMG processing method 1: traditional signal processing}
+\label{sec:dsp}
+
+The first method turns the raw surface EMG into two quantities with fixed filters and
+thresholds: how strongly the user grasps, and whether the muscle activity contains
+Parkinsonian tremor. EMG is recorded with a Delsys Trigno sensor over the finger flexor
+(\textit{m.\ flexor digitorum superficialis}) at \SI{2000}{Hz} and arrives in blocks of
+27 samples (\SI{13.5}{ms}). Every filter is causal and keeps its state between blocks, so
+the block-wise real-time output is identical to processing the whole recording at once,
+and a recorded session replays exactly as it ran live.
+
+\paragraph{Pre-filtering.}
+A 4th-order Butterworth band-pass (\SIrange{20}{450}{Hz}) removes motion artefacts and
+baseline drift below \SI{20}{Hz} and noise above the EMG band~\cite{deluca2010filtering},
+followed by a \SI{50}{Hz} notch ($Q=30$) against mains interference.
+
+\paragraph{Two envelopes.}
+Grasp detection and tremor detection need different time resolutions. A smooth
+envelope suited for grasp intent (\SIrange{150}{250}{ms} windows) averages
+\SIrange{4}{6}{Hz} tremor bursts away, so two envelopes are computed from the same
+filtered signal $x$:
+the \emph{slow envelope} $E_s$, a \SI{200}{ms} moving RMS of $x$, measures voluntary
+effort; the \emph{fast envelope} $E_f$, $|x|$ low-pass filtered at \SI{10}{Hz}, keeps the
+individual tremor bursts.
+
+\paragraph{Tremor features.}
+$E_f$ is band-passed in the Parkinsonian tremor band (\SIrange{4}{6}{Hz},
+\cite{deuschl1998consensus}) and in a wider rhythm band (\SIrange{1}{9}{Hz}); the
+\SI{0.5}{s} moving RMS of each gives the tremor amplitude $A_t$ and the total envelope
+fluctuation $A_r$. Two dimensionless features follow:
+\begin{equation}
+  r = \frac{A_t}{A_r}, \qquad d = \frac{A_t}{\max(E_s,\ \SI{10}{\micro V})}.
+\end{equation}
+The \emph{tremor ratio} $r$ is close to 1 when the fluctuation is a narrow-band rhythm
+and lower for the broadband changes of voluntary movement. The \emph{tremor depth} $d$
+expresses the tremor relative to the current effort, so a strong grip does not look like
+tremor merely because its amplitude is large.
+
+\paragraph{Calibration.}
+At the start of a session the user rests (\SIrange{0.5}{3}{s}) and then holds a firm grip
+(\SIrange{3.5}{10}{s}). The mean of $E_s$ at rest and its 95th percentile during the grip
+give $E_\text{rest}$ and $E_\text{grip}$, and the grasp activation is
+$a = (E_s - E_\text{rest})/(E_\text{grip} - E_\text{rest})$, so $a=0$ at rest and $a=1$ at
+the calibration grip. A calibration is rejected if $E_\text{grip} < 3E_\text{rest}$; an
+accepted one is saved and reused while the sensor stays in place.
+
+\paragraph{State machine.}
+A controller with hysteresis and minimum hold times turns $a$, $d$ and $r$ into one of four
+states (Table~\ref{tab:dsp-thresholds}). After calibration it is armed only once the hand
+has relaxed. In \textsc{grasp\_armed} the tendon motor closes the finger in proportion to
+$a$; in \textsc{stiffened} it holds the mean grasp of the last second, so the finger keeps
+its position instead of following the tremor. A stiffness command
+$k = 0.3 + 2(d - 0.08)$, clipped to $[0,1]$ and rate-limited (up \SI{20}{\per\second}, down
+\SI{1.5}{\per\second}), is also computed.
+
+\begin{table}[h]
+  \centering
+  \small
+  \caption{Transitions of the DSP controller. All thresholds are set in \texttt{settings.py}.}
+  \label{tab:dsp-thresholds}
+  \begin{tabular}{lll}
+    \toprule
+    Transition & Condition & Held for \\
+    \midrule
+    \textsc{idle} $\to$ \textsc{grasp\_armed} & $a \geq 0.25$ & \SI{0.10}{s} \\
+    \textsc{grasp\_armed}/\textsc{stiffened} $\to$ \textsc{idle} & $a < 0.15$ & \SI{0.30}{s} \\
+    \textsc{grasp\_armed} $\to$ \textsc{stiffened} & $d \geq 0.15$ and $r \geq 0.8$ & \SI{0.30}{s} \\
+    \textsc{stiffened} $\to$ \textsc{grasp\_armed} & $d < 0.08$ or $r < 0.6$ & \SI{0.75}{s} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The method is transparent and needs no training data, but every threshold is hand-tuned,
+and tremor is recognised from one fixed frequency band and two features only.

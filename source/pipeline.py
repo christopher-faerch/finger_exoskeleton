@@ -17,8 +17,9 @@ The live pipeline: what happens to every block of EMG.
   (DSP) still runs: it calibrates, it arms the controller, and it takes over at once
   when the GRU is not valid.
 
-  Acquisition: a thread that reads blocks from a source, records them (with
-  --out) and gives them to Pipeline.step until it is stopped.
+  Acquisition: a thread that reads blocks from a source, lays the test signal over
+  them while it is switched on (key 'k', see source/injection.py), records them
+  (with --out) and gives them to Pipeline.step until it is stopped.
 
 The controller runs on stream time (sample number / sample rate), so a replay
 gives the same result as the live run it was recorded from.
@@ -35,6 +36,7 @@ from settings import Channel
 from source.calibration import Activation, Calibration, Calibrator, compute_activation
 from source.calibration import load_calibration
 from source.gru.inference import GRUEstimate, GRUEstimator
+from source.injection import Injector
 from source.recording import RecordedSource, SessionWriter
 from source.signal_processing import EMGBlock, ProcessedBlock, SignalProcessor
 from source.stiffness_controller import HoldTimer, State, StiffnessController
@@ -273,10 +275,11 @@ class Acquisition:
     """Reads blocks from a source in a background thread and feeds them to the pipeline."""
 
     def __init__(self, source: RecordedSource | TrignoSource, pipeline: Pipeline,
-                 session: SessionWriter | None = None) -> None:
+                 session: SessionWriter | None = None, injector: Injector | None = None) -> None:
         self.source = source
         self.pipeline = pipeline
         self.session = session  # records the raw EMG with --out
+        self.injector = injector  # the test signal (key 'k'), or None
         self.error: str | None = None
         self.stop_requested = False
         self.thread = threading.Thread(target=self.loop, name="acquisition", daemon=True)
@@ -310,6 +313,8 @@ class Acquisition:
                 if block is None:
                     self.pipeline.message("Source finished (end of recording)")
                     return
+                if self.injector is not None:  # recorded as the pipeline sees it
+                    block = self.injector.apply(block)
                 if self.session is not None:
                     self.session.write(block)
                 self.pipeline.step(block)

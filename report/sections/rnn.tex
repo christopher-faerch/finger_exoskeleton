@@ -1,0 +1,61 @@
+% Method 2: recurrent neural network (GRU). Target length: at most one page.
+% Implementation: source/gru/ (features.py, model.py, training.py, inference.py),
+% train_gru.py; see GRU_README.md. Values from settings.py.
+\section{EMG processing method 2: recurrent neural network}
+\label{sec:rnn}
+
+The second method replaces the hand-tuned envelopes and thresholds of
+Section~\ref{sec:dsp} with a small recurrent neural network that learns the mapping from
+EMG to grasp intention and tremor from labelled recordings. A recurrent network suits the
+task because both outputs depend on time context: tremor is a rhythm over several
+hundred milliseconds, and a grasp is a build-up of activity.
+
+\paragraph{Input features.}
+The network uses the same band-pass and notch filter as the DSP method. Every \SI{10}{ms}
+the root mean square (RMS) and mean absolute value (MAV)~\cite{hudgins1993new} of the
+last \SI{50}{ms} of filtered EMG are computed per channel; the short window resolves
+\SIrange{4}{6}{Hz} bursts. Each feature $v$ is normalised with the channel's rest level
+from the calibration, $u = \ln(1 + v/E_\text{rest})$, which makes the input largely
+independent of electrode placement and skin impedance and compresses strong contractions.
+
+\paragraph{Architecture.}
+One gated recurrent unit (GRU) layer~\cite{cho2014learning} with 64 hidden units reads
+one feature vector $u_t$ per time step and updates a hidden state $h_t$ that summarises
+the past seconds:
+\begin{align}
+  z_t &= \sigma(W_z u_t + U_z h_{t-1} + b_z), \qquad
+  \rho_t = \sigma(W_\rho u_t + U_\rho h_{t-1} + b_\rho), \\
+  \tilde h_t &= \tanh\!\big(W_h u_t + \rho_t \odot (U_h h_{t-1}) + b_h\big), \qquad
+  h_t = (1 - z_t) \odot \tilde h_t + z_t \odot h_{t-1}.
+\end{align}
+The update gate $z_t$ sets how much memory is kept, the reset gate $\rho_t$ how much of
+it enters the new candidate state. A GRU needs fewer parameters than an
+LSTM~\cite{hochreiter1997long} for the same memory, which matters with little data. Two
+linear heads read $h_t$: an intention $\hat y_t = \tanh(\cdot) \in [-1, 1]$ ($+1$ close,
+$0$ rest, $-1$ open) and a tremor probability $\hat p_t = \sigma(\cdot)$. The network has
+about \num{13000} weights; one step takes about \SI{0.03}{ms} on a laptop CPU, well within
+the \SI{10}{ms} budget.
+
+\paragraph{Labels and training.}
+The intention label must not come from the EMG itself, or the network would only learn to
+copy the envelope. It comes from a cue protocol: the screen tells the subject to rest
+($0$), grip an object ($1$) or squeeze it hard ($1$) for \SIrange{3}{6}{s} at a time, in
+three protocols with different order and timing. As subjects react \SIrange{0.5}{1.7}{s}
+after a cue, the first \SI{1.5}{s} after each change is marked unknown. Without recordings
+of real tremor, tremor labels come from synthetic \SIrange{4}{7}{Hz} bursts laid over the
+tremor-free recordings. Recordings are cut into \SI{4}{s} sequences, and the loss, a Huber
+loss on the intention plus binary cross-entropy on the tremor output, is computed only
+where the label is known. Training uses Adam~\cite{kingma2015adam} (learning rate
+$10^{-3}$, batch 32, 30 epochs) and keeps the weights with the lowest validation loss.
+Whole recordings are split 60/20/20\,\% into training, validation and test, so nearly
+identical neighbouring sequences never appear on both sides.
+
+\paragraph{Integration.}
+The GRU feeds the same state machine as the DSP method (Table~\ref{tab:dsp-thresholds}):
+the grasp activation becomes $a = \max(\hat y_t, 0)$, and the tremor condition can become
+$\hat p_t \geq 0.6$ (off below $0.4$). The DSP method keeps running: it calibrates, arms
+the controller and takes over at once when the GRU output is not valid (no model, wrong
+sensor setup, the first second after a start or drop-out, or a non-finite output).
+Control passes to the GRU only while the finger is open, so the motor target never jumps.
+At present the GRU provides the grasp only; the DSP still decides tremor, because the
+tremor head, trained on synthetic tremor, gave false alarms on real EMG.

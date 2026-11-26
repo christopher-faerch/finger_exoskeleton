@@ -93,6 +93,16 @@ HOLD_WINDOW_S = 1.0  # while STIFFENED: hold the mean grasp of this long before
 DEADBAND = 0.1
 GAMMA = 1.0
 
+# --- Test signal: noise and simulated tremor over the EMG (see source/injection.py) -------
+# Key 'k' in the live window (k + Enter with --headless) switches it on and off.
+INJECT_TREMOR_HZ = 5.0  # Parkinsonian rest tremor is 4-6 Hz
+INJECT_TREMOR_DEPTH = 0.8  # 0 = no tremor, 1 = the EMG is switched fully on and off
+INJECT_TREMOR_BURST_MV = 0.005  # noise bursts at the tremor rhythm, so tremor shows at rest
+INJECT_NOISE_MV = 0.003  # white noise (RMS); the Trigno's own noise is below 0.00075
+INJECT_HUM_HZ = 50.0  # mains hum...
+INJECT_HUM_MV = 0.005  # ...and its amplitude
+INJECT_RAMP_S = 0.3  # the test signal fades in and out over this long
+
 # --- GRU: the neural-network alternative to the signal processing (see GRU_README.md) ------
 # Used with run_emg.py --method gru. A trained model file stores the values it was trained
 # with; the values here are for training a NEW model with train_gru.py.

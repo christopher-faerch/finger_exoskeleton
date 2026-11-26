@@ -13,12 +13,19 @@ Examples (see kommandoer.txt for the bench commands):
                                                     show cues and save them as labels.csv
   add --headless --duration 60 for status lines instead of a window
 
+Test signal: press k in the window (or type k and Enter with --headless) to lay noise
+and simulated tremor over the EMG; press it again to stop. --inject 30:40 55:60 does
+the same at fixed times (seconds after the start). With --out the times are saved in
+injections.csv; evaluate_injection.py scores how the system reacted.
+
 --method dsp (the default) uses the signal processing; --method gru asks a trained
 GRU model (see GRU_README.md) and falls back to the signal processing when the
 model is missing or its estimates are not valid.
 """
 
 import argparse
+import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -28,6 +35,7 @@ import numpy as np
 import settings
 from source.cues import CueProtocol
 from source.gru.inference import GRUEstimator, load_model
+from source.injection import Injector, parse_spans
 from source.mock_tcu import MockTCU
 from source.motor import GraspSignal, MotorThread, connect_motor
 from source.pipeline import Acquisition, Pipeline
@@ -73,7 +81,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="dsp: signal processing (default); gru: a trained GRU model")
     parser.add_argument("--model", type=Path, default=Path(settings.GRU_MODEL_FILE),
                         help=f"with --method gru: the model (default {settings.GRU_MODEL_FILE})")
+    parser.add_argument("--inject", nargs="+", metavar="START:END",
+                        help="lay the test signal (noise + simulated tremor) over the EMG in "
+                             "these spans, in seconds after the start, instead of with key k")
     args = parser.parse_args(argv)
+    if args.inject is not None:
+        try:
+            args.inject = parse_spans(args.inject)
+        except ValueError as error:
+            parser.error(f"--inject: {error}")
     if args.cues is not None and args.out is None:
         parser.error("--cues needs --out: the cues are saved as labels.csv with the recording")
     return args
@@ -142,6 +158,18 @@ def start_delay(args: argparse.Namespace, source: Source) -> float:
     return settings.START_DELAY_S
 
 
+def listen_for_keys(injector: Injector) -> None:
+    """--headless: k + Enter in the terminal switches the test signal, as k in the window."""
+    def read_lines() -> None:
+        try:
+            for line in sys.stdin:
+                if line.strip().lower() == "k":
+                    injector.toggle()
+        except (OSError, ValueError):  # no terminal to read from (e.g. under a test runner)
+            pass
+    threading.Thread(target=read_lines, name="keys", daemon=True).start()
+
+
 def show_until_done(args: argparse.Namespace, pipeline: Pipeline, acquisition: Acquisition,
                     protocol: CueProtocol | None) -> None:
     """The live window, or a status line every second with --headless. Shows the cues."""
@@ -150,6 +178,9 @@ def show_until_done(args: argparse.Namespace, pipeline: Pipeline, acquisition: A
         LiveViewer(pipeline, acquisition, protocol).run()
         return
     from source.viewer import status_line  # pylint: disable=import-outside-toplevel
+    if acquisition.injector is not None and sys.stdin is not None and sys.stdin.isatty():
+        listen_for_keys(acquisition.injector)
+        print("Type k and Enter to switch the test signal (noise + simulated tremor) on/off.")
     end = time.monotonic() + (args.duration if args.duration is not None else np.inf)
     next_status = time.monotonic() + 1.0
     shown_cue = ""
@@ -195,7 +226,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Recording to {folder}")
 
     protocol = CueProtocol(args.cues, start_s=delay) if args.cues is not None else None
-    acquisition = Acquisition(source, pipeline, session)
+    roles = [channel.role for channel in source.channels]
+    injector = Injector(roles, source.sample_rate, message=pipeline.message,
+                        schedule=args.inject)
+    acquisition = Acquisition(source, pipeline, session, injector)
     acquisition.start()
     motors = motor_thread = None
     try:
@@ -220,6 +254,8 @@ def main(argv: list[str] | None = None) -> int:
             session.finish(pipeline.messages, acquisition.error, calibration, args.method)
             if protocol is not None:
                 protocol.write_labels(session.folder)
+            if injector.write(session.folder, pipeline.stream_time) is not None:
+                print("Test-signal times saved to injections.csv")
             print(f"Session saved to {session.folder}")
     return 1 if acquisition.error else 0
 

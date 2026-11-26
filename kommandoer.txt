@@ -19,6 +19,22 @@ Motor kører på samme optagelse med syntetisk tremor lagt ovenpå:
 Motor kører på live sensorer:
 .venv\Scripts\python.exe run_emg.py --source trigno --calibration measurements\plac_calibration.json --motor --motor-port COM5 --headless --duration 60
 
+TESTSIGNAL (støj + simuleret tremor oven på det rigtige signal), se source\injection.py:
+Tryk k i vinduet for at tænde, k igen for at slukke. Med --headless: skriv k og tryk Enter.
+Med --out gemmes tiderne i injections.csv, og emg.csv indeholder signalet, som systemet så det.
+.venv\Scripts\python.exe run_emg.py --source trigno --out measurements --label k-test --calibration measurements\plac_calibration.json
+
+Samme med motor (fingeren skal kunne stivne, når der gribes):
+.venv\Scripts\python.exe run_emg.py --source trigno --out measurements --label k-motor --calibration measurements\plac_calibration.json --motor --motor-port COM5 --headless --duration 120
+
+Testsignalet på faste tider i stedet for med k (sekunder efter start):
+.venv\Scripts\python.exe run_emg.py --source trigno --calibration measurements\plac_calibration.json --inject 30:36 45:51
+
+Evaluering: hvordan reagerede systemet på testsignalet (latens, fundet/ikke fundet, falske alarmer)?
+.venv\Scripts\python.exe evaluate_injection.py --sessions measurements\<mappe med injections.csv>
+Eller læg testsignalet på en ren optagelse nu og sammenlign med den rene afspilning:
+.venv\Scripts\python.exe evaluate_injection.py --sessions measurements\20261113-140546_trigno_chris_arm2 --inject 35:37.5 44.5:46.5 51:54 68.5:72 --out eval.json
+
 Optag en session (gemmes i measurements\, skift "navn"):
 .venv\Scripts\python.exe run_emg.py --source trigno --out measurements --label navn --calibration measurements\plac_calibration.json
 

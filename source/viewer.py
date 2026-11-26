@@ -5,7 +5,7 @@ LiveViewer shows, about ten times per second:
   - per channel: the filtered EMG with its slow envelope (effort) and fast envelope (bursts)
   - the controller: grasp activation, tremor depth and stiffness, with the on-thresholds
   - a text panel: the latest values, the controller state, the calibration and messages
-Keys: c = calibrate again, q = quit.
+Keys: c = calibrate again, k = test signal on/off (noise + simulated tremor), q = quit.
 """
 
 from typing import Any
@@ -46,6 +46,13 @@ def method_text(pipeline: Pipeline) -> str:
     return f"DSP (GRU not used: {pipeline.gru_note or 'waiting for an open finger'})"
 
 
+def injection_text(acquisition: Acquisition) -> str:
+    """Whether the test signal (key 'k') is on."""
+    if acquisition.injector is None:
+        return "not available"
+    return "ON (noise + tremor)" if acquisition.injector.on else "off"
+
+
 def status_line(pipeline: Pipeline) -> str:
     """One line with the latest values, for --headless runs."""
     recent = pipeline.recent()
@@ -69,6 +76,8 @@ class LiveViewer:
         self.acquisition = acquisition
         self.protocol = protocol  # cues to show in big letters, or None
         n = len(pipeline.names)
+        for name in ("keymap.xscale", "keymap.yscale"):  # matplotlib's own k / l: log axes
+            plt.rcParams[name] = [key for key in plt.rcParams[name] if key not in ("k", "K")]
         self.figure = plt.figure(figsize=(14, 2.5 * n + 3))
         grid = self.figure.add_gridspec(n + 1, 2, width_ratios=(3, 1), hspace=0.4)
 
@@ -111,9 +120,11 @@ class LiveViewer:
         self.animation: FuncAnimation | None = None
 
     def on_key(self, event: Any) -> None:
-        """c: calibrate again, q: quit."""
+        """c: calibrate again, k: test signal on/off, q: quit."""
         if event.key == "c":
             self.pipeline.recalibrate()
+        elif event.key == "k" and self.acquisition.injector is not None:
+            self.acquisition.injector.toggle()
         elif event.key == "q":
             plt.close(self.figure)
 
@@ -139,8 +150,11 @@ class LiveViewer:
             self.gru_lines[0].set_data(control_ago, recent["gru_intention"])
             self.gru_lines[1].set_data(control_ago, recent["gru_probability"])
         state = pipeline.state.value
-        self.control_ax.set_title(f"Controller {state}  [{pipeline.controller.last_transition}]",
-                                  fontsize=8, color=STATE_COLORS[state])
+        title = f"Controller {state}  [{pipeline.controller.last_transition}]"
+        injector = self.acquisition.injector
+        if injector is not None and injector.on:
+            title = "TEST SIGNAL ON (noise + tremor)   " + title
+        self.control_ax.set_title(title, fontsize=8, color=STATE_COLORS[state])
 
         lines = [f"{'channel':8s} {'RMS uV':>7s} {'depth':>6s} {'ratio':>6s}"]
         for i, name in enumerate(pipeline.names):
@@ -149,8 +163,9 @@ class LiveViewer:
         lines += ["", f"Method:      {method_text(pipeline)}",
                   f"Controller:  {state}", f"Stiffness:   {last(recent['stiffness']):.2f}",
                   f"Grasp:       {last(recent['grasp']):.2f}",
-                  f"Calibration: {calibration_text(pipeline)}", "",
-                  "Keys: c calibrate again | q quit", ""] + recent["messages"]
+                  f"Calibration: {calibration_text(pipeline)}",
+                  f"Test signal: {injection_text(self.acquisition)}", "",
+                  "Keys: c calibrate again | k test signal | q quit", ""] + recent["messages"]
         if not self.acquisition.running:
             lines += ["", "ACQUISITION STOPPED", self.acquisition.error or ""]
         self.text.set_text("\n".join(lines))

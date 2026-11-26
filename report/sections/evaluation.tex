@@ -1,0 +1,67 @@
+% Evaluation: method + results. Target length: at most one page in total.
+% Implementation: source/injection.py (key k / --inject), source/injection_evaluation.py,
+% evaluate_injection.py. Commands in kommandoer.txt.
+\section{Evaluation}
+\label{sec:evaluation}
+
+Without access to people with Parkinson's disease, the system is evaluated on healthy
+subjects with simulated tremor, the usual first validation step for tremor-suppression
+devices. To test the complete chain (filters, calibration, state machine and motor) on
+real EMG with a known ground truth, a test signal can be laid over the live signal.
+
+\paragraph{Test signal.}
+When the operator presses \texttt{k}, every incoming block of raw EMG $x(t)$ is modified
+before it is processed and recorded:
+\begin{equation}
+  x'(t) = x(t)\big[(1-\delta) + 2\delta\, b(t)\big]
+        + 2\delta\, b(t)\, \sigma_b \xi_1(t) + \sigma_n \xi_2(t) + A_h \sin(2\pi\,50\,t),
+\end{equation}
+with $b(t) = \tfrac12\big(1 + \sin(2\pi f t + \varphi)\big)$ and unit Gaussian noise
+$\xi_1, \xi_2$. The first term switches the muscle's own activity on and off at
+$f = \SI{5}{Hz}$ with depth $\delta = 0.8$ without changing its mean power; extensor
+channels use $\varphi = \pi$, as Parkinsonian tremor alternates between antagonists. The
+second term adds bursts ($\sigma_b = \SI{5}{\micro V}$) at the same rhythm, so tremor is
+also present at rest. The last two terms are disturbances: white noise
+($\sigma_n = \SI{3}{\micro V}$, four times the sensor's noise floor) and \SI{50}{Hz}
+mains hum ($A_h = \SI{5}{\micro V}$). The signal fades in and out over \SI{0.3}{s};
+pressing \texttt{k} again turns it off. The recording stores the EMG as the system saw
+it plus the on/off times as ground truth, so every test can be replayed and scored. The
+signal can also be laid onto a clean recording at fixed times, with the clean replay as
+reference.
+
+\paragraph{Protocol and metrics.}
+The subject follows the cue protocol of Section~\ref{sec:rnn} with the motor attached,
+while the operator switches the test signal on for \SIrange{2}{4}{s} at a time, during
+grips and during rest, once with each method. For each episode we register whether the
+user was gripping and whether the controller reached \textsc{stiffened}, and report:
+the \emph{detection rate} (gripping episodes that stiffened), the \emph{latency} from
+episode start to \textsc{stiffened}, the \emph{release time} after the episode,
+\emph{stiffening at rest} (should be zero, as stiffening requires a grasp),
+\emph{false stiffening} per minute outside the episodes, and the \emph{grasp agreement}
+during the episodes with the clean replay or the cue labels, which measures robustness
+to the noise. By design the latency cannot be below about \SI{0.8}{s}: the
+\SI{0.5}{s} tremor window plus the \SI{0.3}{s} hold time.
+
+\paragraph{Results.}
+% TODO: fill in from: evaluate_injection.py --sessions ... --out results.json
+\todo{Table~\ref{tab:evaluation} summarises \todo{N} sessions from \todo{N} subjects.}
+
+\begin{table}[h]
+  \centering
+  \small
+  \caption{Response to the test signal (mean over sessions). Ideal: detection rate 1,
+  no stiffening at rest, no false stiffening, grasp agreement 1.}
+  \label{tab:evaluation}
+  \begin{tabular}{lcccccc}
+    \toprule
+    Method & Detection & Latency & Release & Stiff.\ at & False stiff. & Grasp \\
+           & rate      & [s]     & [s]     & rest       & [min$^{-1}$] & agreement \\
+    \midrule
+    DSP                    & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} \\
+    GRU grasp + DSP tremor & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\todo{Two to four sentences on what the numbers show and how the finger behaved on the
+bench.}
