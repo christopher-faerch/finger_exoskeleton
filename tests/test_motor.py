@@ -7,6 +7,7 @@ import pytest
 
 import settings
 from source.calibration import Activation
+from source.controllers import VelocityEMGController
 from source.motor import GraspSignal, connect_motor
 from source.stiffness_controller import State
 from tests.fakes import FakeMotors
@@ -95,3 +96,56 @@ def test_connect_refuses_a_motor_far_outside_the_range() -> None:
     with pytest.raises(ValueError, match="outside the open-closed range"):
         connect_motor("COM0", motors_class=far_away)
     assert made[0].torque == [False, False] and made[0].closed
+
+
+def test_connect_builds_the_velocity_controller() -> None:
+    """control="velocity" gives the rate controller with the speeds from settings.py."""
+    _, controller = connect_motor("COM0", motors_class=FakeMotors, control="velocity")
+    assert isinstance(controller, VelocityEMGController)
+    assert controller.close_speed == settings.VELOCITY_CLOSE_SPEED
+    with pytest.raises(ValueError, match="Unknown motor control"):
+        connect_motor("COM0", motors_class=FakeMotors, control="torque")
+
+
+def velocity_controller(hold: bool = False) -> tuple[FakeMotors, VelocityEMGController]:
+    """A velocity controller on a fake motor that starts at the open position."""
+    motors = FakeMotors(position=settings.OPEN_POS)
+    motors.control_mode = [1, FakeMotors.EXT_POS_CONTROL]
+    controller = VelocityEMGController(
+        motors, settings.MOTOR_ID, open_pos=settings.OPEN_POS, closed_pos=settings.CLOSED_POS,
+        close_speed=1000.0, open_speed=500.0, deadband=0.1, hold=lambda: hold)
+    return motors, controller
+
+
+def run_steps(controller: VelocityEMGController, activation: float, seconds: float,
+              start: float = 0.0) -> float:
+    """Step the controller at 50 Hz; returns the time after the last step."""
+    now = start
+    for _ in range(round(seconds * 50)):
+        controller.step(activation, now)
+        now += 0.02
+    return now
+
+
+def test_velocity_grasp_closes_at_a_speed_set_by_the_grasp() -> None:
+    """Full grasp closes at close_speed, a weaker grasp more slowly, rest opens again."""
+    motors, controller = velocity_controller()
+    now = run_steps(controller, 1.0, 0.5)
+    full = settings.OPEN_POS - motors.position  # closed lies below open
+    assert full == pytest.approx(0.5 * 1000.0, abs=25)
+    motors, weak = velocity_controller()
+    run_steps(weak, 0.55, 0.5)  # (0.55 - 0.1) / 0.9 = half speed
+    assert settings.OPEN_POS - motors.position == pytest.approx(full / 2, abs=25)
+    before = motors.position
+    run_steps(weak, 0.0, 0.2, start=now)
+    assert motors.position > before  # rest: the finger opens
+
+
+def test_velocity_stops_at_closed_and_holds_during_tremor() -> None:
+    """The finger never passes closed, and hold() keeps it where it is."""
+    motors, controller = velocity_controller()
+    run_steps(controller, 1.0, 5.0)
+    assert motors.position == settings.CLOSED_POS
+    motors, held = velocity_controller(hold=True)
+    run_steps(held, 1.0, 1.0)
+    assert motors.position == settings.OPEN_POS

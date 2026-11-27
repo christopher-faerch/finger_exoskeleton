@@ -10,6 +10,9 @@ supplied from outside (the EMG processing is NOT part of this module):
   * ThresholdEMGController    - activation above a threshold closes the hand,
     below a lower threshold opens it (with hysteresis and dwell times,
     optionally as a toggle).
+  * VelocityEMGController     - the muscle activation sets the closing SPEED
+    (rate control): grip harder to close faster, relax to open. The motor
+    stays in position mode, so the open/closed limits still hold.
 
 INPUT CONTRACT
     activation: a float in 0.0 .. 1.0 where 0 = muscle at rest and 1 = full
@@ -233,3 +236,52 @@ class ThresholdEMGController(EMGPositionController):
 
     def status(self):
         return f"state={self.state}"
+
+
+class VelocityEMGController(EMGPositionController):
+    """Velocity (rate) control: the activation sets how fast the finger moves.
+
+        activation above the deadband -> close at shape(activation) * close_speed
+        activation at rest            -> open at open_speed
+        hold() is True                -> stand still (e.g. while tremor is detected)
+
+    The integrated position is sent as a goal position, so the motor stays in
+    (extended) position mode and the finger cannot run past open or closed.
+
+    close_speed, open_speed : ticks/s at full activation and when opening
+    hold                    : optional callable; True keeps the finger where it is
+    deadband, gamma         : as in ProportionalEMGController
+    """
+
+    def __init__(self, *args, close_speed=1000.0, open_speed=1000.0, deadband=0.1,
+                 gamma=1.0, hold=None, **kwargs):
+        kwargs.setdefault("max_speed", max(close_speed, open_speed))
+        super().__init__(*args, **kwargs)
+        self.close_speed = close_speed
+        self.open_speed = open_speed
+        self.deadband = deadband
+        self.gamma = gamma
+        self.hold = hold
+        self.position = None   # the integrated finger position (ticks)
+        self.speed = 0.0       # last speed toward closed (ticks/s, negative = opening)
+        self._t_prev = None
+
+    def compute_target(self, activation, now):
+        if self.position is None:
+            self.position = self.command
+        dt = self.period if self._t_prev is None else min(max(now - self._t_prev, 0.0), 0.1)
+        self._t_prev = now
+        x = np.clip((activation - self.deadband) / (1.0 - self.deadband), 0.0, 1.0)
+        if self.hold is not None and self.hold():
+            self.speed = 0.0
+        elif x > 0.0:
+            self.speed = (x ** self.gamma) * self.close_speed
+        else:
+            self.speed = -self.open_speed
+        direction = 1.0 if self.closed_pos > self.open_pos else -1.0
+        self.position = float(np.clip(self.position + direction * self.speed * dt,
+                                      self.lo, self.hi))
+        return self.position
+
+    def status(self):
+        return f"speed={self.speed:7.1f}"

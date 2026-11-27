@@ -9,6 +9,7 @@ Examples (see kommandoer.txt for the bench commands):
   python run_emg.py --source trigno --mock-tcu                    a fake TCU, no hardware
   python run_emg.py --source recorded --file measurements/<session folder>   replay
   python run_emg.py --source trigno --method gru --model models/gru.pt   the GRU instead of DSP
+  python run_emg.py --source trigno --motor --control velocity   the grasp sets the motor speed
   python run_emg.py --source trigno --out measurements --cues protocols/greb_1.csv
                                                     show cues and save them as labels.csv
   add --headless --duration 60 for status lines instead of a window
@@ -40,6 +41,7 @@ from source.mock_tcu import MockTCU
 from source.motor import GraspSignal, MotorThread, connect_motor
 from source.pipeline import Acquisition, Pipeline
 from source.recording import Recording, RecordedSource, SessionWriter, new_session_folder
+from source.stiffness_controller import State
 from source.trigno import TrignoSource
 
 Source = RecordedSource | TrignoSource  # where the EMG comes from
@@ -66,6 +68,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--motor", action="store_true", help="drive the tendon motor")
     parser.add_argument("--motor-port", default=settings.MOTOR_PORT,
                         help=f"serial port of the motor (default {settings.MOTOR_PORT})")
+    parser.add_argument("--control", choices=["position", "velocity"],
+                        default=settings.MOTOR_CONTROL,
+                        help="with --motor: position (the finger follows the grasp) or velocity "
+                             "(the grasp sets the closing speed, rest opens, tremor holds) "
+                             f"(default {settings.MOTOR_CONTROL})")
     parser.add_argument("--calibration", type=Path,
                         help="calibration file: used if it fits, written after a calibration "
                              f"(default for live Trigno: {settings.CALIBRATION_FILE})")
@@ -196,6 +203,15 @@ def show_until_done(args: argparse.Namespace, pipeline: Pipeline, acquisition: A
             print(status_line(pipeline), flush=True)
 
 
+def start_motor(args: argparse.Namespace, pipeline: Pipeline) -> tuple[Any, MotorThread]:
+    """Connect the tendon motor with --control and start driving it from the pipeline."""
+    motors, controller = connect_motor(args.motor_port, control=args.control,
+                                       hold=lambda: pipeline.state == State.STIFFENED)
+    motor_thread = MotorThread(controller, GraspSignal(pipeline), pipeline.message)
+    motor_thread.start()
+    return motors, motor_thread
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run until the window is closed, --duration has passed or Ctrl+C; returns the exit code."""
     args = parse_args(argv)
@@ -223,6 +239,8 @@ def main(argv: list[str] | None = None) -> int:
         session = SessionWriter(folder, source.channels, source.sample_rate, source.name,
                                 source.info(), args.label)
         session.metadata["start_delay_s"] = delay  # so a replay waits just as long
+        if args.motor:
+            session.metadata["motor_control"] = args.control
         print(f"Recording to {folder}")
 
     protocol = CueProtocol(args.cues, start_s=delay) if args.cues is not None else None
@@ -234,9 +252,7 @@ def main(argv: list[str] | None = None) -> int:
     motors = motor_thread = None
     try:
         if args.motor:
-            motors, controller = connect_motor(args.motor_port)
-            motor_thread = MotorThread(controller, GraspSignal(pipeline), pipeline.message)
-            motor_thread.start()
+            motors, motor_thread = start_motor(args, pipeline)
         show_until_done(args, pipeline, acquisition, protocol)
     except KeyboardInterrupt:
         print("Interrupted")

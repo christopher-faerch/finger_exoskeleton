@@ -27,7 +27,8 @@ def test_replay_with_recording(tmp_path: Path) -> None:
     assert (folder / "emg.csv").read_text().startswith("time_s,FDS_mV,EDC_mV")
 
 
-def test_motor_ends_open(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("control", ["position", "velocity"])
+def test_motor_ends_open(monkeypatch: pytest.MonkeyPatch, control: str) -> None:
     """With --motor the motor runs during the replay and is back at open at the end."""
     made: list[FakeMotors] = []
 
@@ -35,10 +36,13 @@ def test_motor_ends_open(monkeypatch: pytest.MonkeyPatch) -> None:
         made.append(FakeMotors(**kwargs))
         return made[0]
 
-    monkeypatch.setattr(run_emg, "connect_motor",
-                        lambda port: connect_motor(port, motors_class=fake_motors))
+    def connect(port: str, **kwargs: Any) -> Any:
+        assert kwargs["control"] == control
+        return connect_motor(port, motors_class=fake_motors, **kwargs)
+
+    monkeypatch.setattr(run_emg, "connect_motor", connect)
     code = run_emg.main(["--source", "recorded", "--file", str(RECORDING), "--headless",
-                         "--duration", "1.0", "--motor"])
+                         "--duration", "1.0", "--motor", "--control", control])
     assert code == 0
     assert made[0].sent and made[0].sent[-1] == settings.OPEN_POS
 

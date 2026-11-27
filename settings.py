@@ -92,6 +92,10 @@ STALE_S = 0.3  # newest EMG older than this counts as no signal
 HOLD_WINDOW_S = 1.0  # while STIFFENED: hold the mean grasp of this long before
 DEADBAND = 0.1
 GAMMA = 1.0
+MOTOR_CONTROL = "position"  # "position": the finger follows the grasp; "velocity": the grasp
+# sets the closing speed, relaxing opens the finger, and tremor holds it where it is
+VELOCITY_CLOSE_SPEED = 1000.0  # ticks per second at full grasp (velocity control)
+VELOCITY_OPEN_SPEED = 1000.0  # ticks per second when the hand relaxes (velocity control)
 
 # --- Test signal: noise and simulated tremor over the EMG (see source/injection.py) -------
 # Key 'k' in the live window (k + Enter with --headless) switches it on and off.

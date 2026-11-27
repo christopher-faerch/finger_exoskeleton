@@ -7,6 +7,18 @@ Motor: fingeren skal stå åben før start. Tag 12 V-stikket ud, hvis noget går
 Kalibreringen til den nuværende sensorplacering ligger i measurements\plac_calibration.json.
 
 
+DE FIRE KØRSLER (live Trigno + motor, dobbeltklik eller kør fra PowerShell):
+  run_position_dsp.bat   1. positionsstyring + signalbehandling (DSP)
+  run_velocity_dsp.bat   2. hastighedsstyring + signalbehandling (DSP)
+  run_position_rnn.bat   3. positionsstyring + RNN (GRU, models\gru.pt)
+  run_velocity_rnn.bat   4. hastighedsstyring + RNN (GRU, models\gru.pt)
+Tryk k i vinduet for at lægge simuleret tremor på det live signal, k igen for at stoppe.
+Kørslen gemmes i measurements\ med tremor-tiderne i injections.csv.
+Positionsstyring: fingeren følger grebet. Hastighedsstyring: grebet bestemmer, hvor hurtigt
+fingeren lukker, afslapning åbner den, og ved tremor står den stille (hastigheder i settings.py).
+Ekstra valg sendes videre, fx: run_velocity_dsp.bat --motor-port COM4   eller   --calibrate
+Uden en gyldig models\gru.pt kører 3 og 4 på DSP og skriver det i vinduet.
+
 Kun vis emg data (ingen optagelse, ingen motor):
 .venv\Scripts\python.exe run_emg.py --source trigno --calibration measurements\plac_calibration.json
 

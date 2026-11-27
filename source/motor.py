@@ -14,7 +14,11 @@ slow serial bus can never hold up the EMG. GraspSignal decides what it sees:
   STIFFENED    -> the mean grasp of the last HOLD_WINDOW_S before the tremor was
                   detected: the finger holds its position instead of following the tremor
 
-The motor runs in extended position mode (4), so open and closed may lie on
+With velocity control (--control velocity) VelocityEMGController uses the same
+signal as a speed: a grasp closes the finger, faster the harder the grip, rest
+opens it, and while STIFFENED the finger stands still.
+
+The motor runs in extended position mode (4) in both cases, so open and closed may lie on
 both sides of the 0/4095 wrap. Only motor MOTOR_ID is touched.
 """
 
@@ -81,7 +85,7 @@ class MotorThread:
     def start(self) -> None:
         """Start driving the motor."""
         self.thread.start()
-        self.message("Motor control started")
+        self.message(f"Motor control started ({type(self.controller).__name__})")
 
     def run(self) -> None:
         """The thread: the controller's own loop. Any motor error stops only the motor."""
@@ -107,14 +111,19 @@ def turn_shift(present: int, open_pos: int, closed_pos: int) -> int:
     return round((present - middle) / TICKS_PER_TURN) * TICKS_PER_TURN
 
 
-def connect_motor(port: str, motors_class: Any = None) -> tuple[Any, Any]:
+def connect_motor(port: str, motors_class: Any = None, control: str = "position",
+                  hold: Callable[[], bool] | None = None) -> tuple[Any, Any]:
     """
     Connect to the tendon motor and build the controller. Returns (motors, controller);
     close motors after the controller has stopped.
+    control: "position" (the finger follows the grasp) or "velocity" (the grasp sets the
+    speed); hold, with velocity control: True keeps the finger where it is.
     """
+    if control not in ("position", "velocity"):
+        raise ValueError(f"Unknown motor control {control!r}: use position or velocity")
     # Imported here so the EMG side works without the Dynamixel SDK installed
     # pylint: disable=import-outside-toplevel
-    from source.controllers import ProportionalEMGController
+    from source.controllers import ProportionalEMGController, VelocityEMGController
 
     if motors_class is None:
         from source.DynamixelHardwareInterface import Motors
@@ -142,9 +151,15 @@ def connect_motor(port: str, motors_class: Any = None) -> tuple[Any, Any]:
                          f"{low}-{high}. Put the finger in the open position, or measure "
                          f"OPEN_POS and CLOSED_POS again. Torque was left off.")
     motors.enable_torque([motor_id])
-    controller = ProportionalEMGController(
-        motors, motor_id, open_pos=open_pos, closed_pos=closed_pos,
-        max_speed=settings.MAX_SPEED, rate_hz=settings.MOTOR_RATE_HZ,
-        signal_timeout_s=settings.SIGNAL_TIMEOUT_S,
-        deadband=settings.DEADBAND, gamma=settings.GAMMA)
+    common = {"open_pos": open_pos, "closed_pos": closed_pos, "rate_hz": settings.MOTOR_RATE_HZ,
+              "signal_timeout_s": settings.SIGNAL_TIMEOUT_S, "deadband": settings.DEADBAND,
+              "gamma": settings.GAMMA}
+    controller: Any
+    if control == "velocity":
+        controller = VelocityEMGController(
+            motors, motor_id, close_speed=settings.VELOCITY_CLOSE_SPEED,
+            open_speed=settings.VELOCITY_OPEN_SPEED, hold=hold, **common)
+    else:
+        controller = ProportionalEMGController(motors, motor_id, max_speed=settings.MAX_SPEED,
+                                               **common)
     return motors, controller
