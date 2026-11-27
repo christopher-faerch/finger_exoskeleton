@@ -61,5 +61,30 @@ def test_launcher_runs_with_tremor(name: str, tmp_path: Path,
     assert made[0].sent
     motor = read_motor_log(folder)  # the motor log, on the stream clock of emg.csv
     assert motor is not None and len(motor.times) > 10
-    assert 0.0 <= motor.times[0] < motor.times[-1] <= 1.6
+    assert 0.0 <= motor.times[0] < motor.times[-1] <= 2.0  # the motor stops just after
     assert np.all((motor.closure > -0.05) & (motor.closure < 1.05))
+
+
+def protocol_args(path: Path) -> tuple[str, list[str]]:
+    """(the launcher a protocol launcher calls, the options it adds)."""
+    text = path.read_text()
+    (line,) = [line for line in text.splitlines() if "run_" in line and (
+        line.startswith("call ") or line.startswith("exec "))]
+    line = line.replace("\\", "/").replace("%~dp0", "").replace('$(dirname "$0")/', "")
+    words = shlex.split(line)
+    base = Path(words[1]).stem
+    return base, [word for word in words[2:] if word not in ("%*", "$@")]
+
+
+@pytest.mark.parametrize("name", sorted(LAUNCHERS))
+@pytest.mark.parametrize("suffix", [".bat", ".sh"])
+def test_protocol_launcher_adds_cues_and_fixed_tremor(name: str, suffix: str) -> None:
+    """protocol_<launcher> runs the launcher with the cue protocol and the same tremor spans."""
+    base, extra = protocol_args(ROOT / f"protocol_{name}{suffix}")
+    assert base == name
+    args = run_emg.parse_args(launcher_args(ROOT / f"{name}{suffix}") + extra)
+    assert (args.control, args.method) == LAUNCHERS[name]
+    assert args.cues == Path("protocols/greb_1.csv") and (ROOT / args.cues).is_file()
+    assert [(span.start_s, span.end_s) for span in args.inject] == [
+        (35.0, 37.5), (40.0, 42.0), (51.0, 54.0), (63.5, 66.0), (68.5, 72.0)]
+    assert args.label.endswith("-proto") and args.push

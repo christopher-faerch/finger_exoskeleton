@@ -13,6 +13,13 @@ DE FIRE KØRSLER (live Trigno + motor, dobbeltklik eller kør fra PowerShell):
   run_velocity_dsp.bat    3. hastighedsstyring + signalbehandling (DSP)
   run_velocity_rnn.bat    4. hastighedsstyring + RNN (GRU, models\gru.pt)
 Den trinløse positionsstyring findes stadig: tilføj --control position til et script.
+
+SAMME TESTPROTOKOL I ALLE KØRSLER (til sammenligningen; kør hver 3 gange i skiftende rækkefølge):
+  protocol_run_threshold_dsp.bat   protocol_run_threshold_rnn.bat
+  protocol_run_velocity_dsp.bat    protocol_run_velocity_rnn.bat
+Følg cues på skærmen (HVIL / GRIB / KLEM). Tryk IKKE k: tremoren tænder selv ved
+35-37,5 s, 40-42 s, 51-54 s, 63,5-66 s og 68,5-72 s (3 greb og 2 hvil; 3 greb er uden tremor).
+Luk vinduet, når der står FÆRDIG (ca. 85 s). Kørslen gemmes som <styring>-<metode>-proto og pushes.
 Tryk k i vinduet for at lægge simuleret tremor på det live signal, k igen for at stoppe.
 Kørslen gemmes i measurements\: emg.csv, motor.csv (motorens mål og position, 50 Hz) og
 tremor-tiderne i injections.csv. Når vinduet lukkes, committes og pushes mappen til GitHub
