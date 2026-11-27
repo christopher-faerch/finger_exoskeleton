@@ -1,0 +1,96 @@
+{
+  "status": "complete",
+  "label": "pos-gru",
+  "emg_file": "emg.csv",
+  "emg_units": "mV",
+  "channels": [
+    {
+      "name": "FDS",
+      "role": "flexor",
+      "trigno_slot": 15
+    }
+  ],
+  "processing": {
+    "bandpass_low_hz": 20.0,
+    "bandpass_high_hz": 450.0,
+    "bandpass_order": 4,
+    "notch_enabled": true,
+    "notch_hz": 50.0,
+    "notch_quality": 30.0,
+    "slow_window_s": 0.2,
+    "fast_cutoff_hz": 10.0,
+    "tremor_band_hz": [
+      4.0,
+      6.0
+    ],
+    "tremor_window_s": 0.5,
+    "rhythm_band_hz": [
+      1.0,
+      9.0
+    ],
+    "depth_min_envelope_mv": 0.01
+  },
+  "start_time": "2026-11-27T10:25:47+01:00",
+  "source": "trigno",
+  "sample_rate_hz": 2000.0,
+  "source_info": {
+    "host": "127.0.0.1:50040/50043",
+    "server": "Delsys Trigno System Digital Protocol Version 3.6.0",
+    "sample rate": "2000 Hz",
+    "slots": "FDS=slot 15@14"
+  },
+  "start_delay_s": 20.0,
+  "motor_control": "position",
+  "method": "gru",
+  "calibration": {
+    "channel_names": [
+      "FDS"
+    ],
+    "rest_slow": [
+      0.004249235464267198
+    ],
+    "reference_slow": [
+      0.021028470969908127
+    ],
+    "rest_fast": [
+      0.0033704778530856266
+    ],
+    "reference_fast": [
+      0.015941554935313483
+    ]
+  },
+  "end_time": "2026-11-27T10:26:41+01:00",
+  "samples_per_channel": 103437,
+  "duration_s": 51.7185,
+  "events": [
+    {
+      "time_s": 1.9845,
+      "message": "Motor control started (ProportionalEMGController)"
+    },
+    {
+      "time_s": 29.997,
+      "message": "Calibration complete; relax the hand to arm the controller"
+    },
+    {
+      "time_s": 29.997,
+      "message": "  rest/reference uV: FDS 4/21"
+    },
+    {
+      "time_s": 29.997,
+      "message": "Calibration saved to measurements\\plac_calibration.json; later runs use it"
+    },
+    {
+      "time_s": 29.997,
+      "message": "GRU not used (warming up); using the signal processing"
+    },
+    {
+      "time_s": 30.4695,
+      "message": "Hand relaxed; controller armed"
+    },
+    {
+      "time_s": 31.0365,
+      "message": "GRU estimates in use"
+    }
+  ],
+  "error": ""
+}

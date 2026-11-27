@@ -1,0 +1,88 @@
+{
+  "status": "complete",
+  "label": "pos-dsp",
+  "emg_file": "emg.csv",
+  "emg_units": "mV",
+  "channels": [
+    {
+      "name": "FDS",
+      "role": "flexor",
+      "trigno_slot": 15
+    }
+  ],
+  "processing": {
+    "bandpass_low_hz": 20.0,
+    "bandpass_high_hz": 450.0,
+    "bandpass_order": 4,
+    "notch_enabled": true,
+    "notch_hz": 50.0,
+    "notch_quality": 30.0,
+    "slow_window_s": 0.2,
+    "fast_cutoff_hz": 10.0,
+    "tremor_band_hz": [
+      4.0,
+      6.0
+    ],
+    "tremor_window_s": 0.5,
+    "rhythm_band_hz": [
+      1.0,
+      9.0
+    ],
+    "depth_min_envelope_mv": 0.01
+  },
+  "start_time": "2026-11-27T10:26:58+01:00",
+  "source": "trigno",
+  "sample_rate_hz": 2000.0,
+  "source_info": {
+    "host": "127.0.0.1:50040/50043",
+    "server": "Delsys Trigno System Digital Protocol Version 3.6.0",
+    "sample rate": "2000 Hz",
+    "slots": "FDS=slot 15@14"
+  },
+  "start_delay_s": 20.0,
+  "motor_control": "position",
+  "method": "dsp",
+  "calibration": {
+    "channel_names": [
+      "FDS"
+    ],
+    "rest_slow": [
+      0.003739261507947769
+    ],
+    "reference_slow": [
+      0.05186288216155
+    ],
+    "rest_fast": [
+      0.0029977752611408575
+    ],
+    "reference_fast": [
+      0.040172622538268685
+    ]
+  },
+  "end_time": "2026-11-27T10:28:06+01:00",
+  "samples_per_channel": 131868,
+  "duration_s": 65.934,
+  "events": [
+    {
+      "time_s": 1.9845,
+      "message": "Motor control started (ProportionalEMGController)"
+    },
+    {
+      "time_s": 29.997,
+      "message": "Calibration complete; relax the hand to arm the controller"
+    },
+    {
+      "time_s": 29.997,
+      "message": "  rest/reference uV: FDS 4/52"
+    },
+    {
+      "time_s": 29.997,
+      "message": "Calibration saved to measurements\\plac_calibration.json; later runs use it"
+    },
+    {
+      "time_s": 32.265,
+      "message": "Hand relaxed; controller armed"
+    }
+  ],
+  "error": ""
+}
