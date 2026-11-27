@@ -1,0 +1,92 @@
+{
+  "status": "complete",
+  "label": "pos-dsp",
+  "emg_file": "emg.csv",
+  "emg_units": "mV",
+  "channels": [
+    {
+      "name": "FDS",
+      "role": "flexor",
+      "trigno_slot": 15
+    }
+  ],
+  "processing": {
+    "bandpass_low_hz": 20.0,
+    "bandpass_high_hz": 450.0,
+    "bandpass_order": 4,
+    "notch_enabled": true,
+    "notch_hz": 50.0,
+    "notch_quality": 30.0,
+    "slow_window_s": 0.2,
+    "fast_cutoff_hz": 10.0,
+    "tremor_band_hz": [
+      4.0,
+      6.0
+    ],
+    "tremor_window_s": 0.5,
+    "rhythm_band_hz": [
+      1.0,
+      9.0
+    ],
+    "depth_min_envelope_mv": 0.01
+  },
+  "start_time": "2026-11-27T12:11:03+01:00",
+  "source": "trigno",
+  "sample_rate_hz": 2000.0,
+  "source_info": {
+    "host": "127.0.0.1:50040/50043",
+    "server": "Delsys Trigno System Digital Protocol Version 3.6.0",
+    "sample rate": "2000 Hz",
+    "slots": "FDS=slot 15@14"
+  },
+  "start_delay_s": 20.0,
+  "motor_control": "threshold",
+  "method": "dsp",
+  "calibration": {
+    "channel_names": [
+      "FDS"
+    ],
+    "rest_slow": [
+      0.005992518680157833
+    ],
+    "reference_slow": [
+      0.020521701534991277
+    ],
+    "rest_fast": [
+      0.003746955911519046
+    ],
+    "reference_fast": [
+      0.016671095559637458
+    ]
+  },
+  "end_time": "2026-11-27T12:12:06+01:00",
+  "samples_per_channel": 119448,
+  "duration_s": 59.724,
+  "events": [
+    {
+      "time_s": 0.0,
+      "message": "Saved calibration loaded from measurements\\plac_calibration.json (2026-11-27T11:05:55+01:00)"
+    },
+    {
+      "time_s": 0.0135,
+      "message": "Using the saved calibration; relax the hand to arm the controller"
+    },
+    {
+      "time_s": 0.0135,
+      "message": "  rest/reference uV: FDS 6/21"
+    },
+    {
+      "time_s": 0.324,
+      "message": "Hand relaxed; controller armed"
+    },
+    {
+      "time_s": 1.9845,
+      "message": "Motor control started (ThresholdEMGController)"
+    },
+    {
+      "time_s": 26.7165,
+      "message": "Test signal ON at 26.7 s: 5 Hz tremor (depth 0.8) + noise"
+    }
+  ],
+  "error": ""
+}
