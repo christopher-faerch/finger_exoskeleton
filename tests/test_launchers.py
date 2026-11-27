@@ -15,8 +15,8 @@ from tests.fakes import FakeMotors
 
 ROOT = Path(__file__).resolve().parent.parent
 RECORDING = ROOT / "measurements" / "20261105-144738_trigno_to-lange-greb"
-LAUNCHERS = {"run_position_dsp": ("position", "dsp"), "run_velocity_dsp": ("velocity", "dsp"),
-             "run_position_rnn": ("position", "gru"), "run_velocity_rnn": ("velocity", "gru")}
+LAUNCHERS = {"run_position_dsp": ("threshold", "dsp"), "run_velocity_dsp": ("threshold", "dsp"),
+             "run_position_rnn": ("threshold", "gru"), "run_velocity_rnn": ("threshold", "gru")}
 
 
 def launcher_args(path: Path) -> list[str]:

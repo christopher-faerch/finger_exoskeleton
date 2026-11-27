@@ -92,7 +92,7 @@ STALE_S = 0.3  # newest EMG older than this counts as no signal
 HOLD_WINDOW_S = 1.0  # while STIFFENED: hold the mean grasp of this long before
 DEADBAND = 0.1
 GAMMA = 1.0
-MOTOR_CONTROL = "position"  # "position": the finger follows the grasp; "velocity": the grasp
+MOTOR_CONTROL = "threshold"  # "position": the finger follows the grasp; "velocity": the grasp
 # sets the closing speed, relaxing opens the finger, and tremor holds it where it is;
 # "threshold": open or closed only (see below), the steadiest while a grip is held
 # Threshold control (grasp 0 = rest, 1 = the calibrated firm grip). The finger closes when the
