@@ -39,8 +39,9 @@ from source.cues import CueProtocol
 from source.gru.inference import GRUEstimator, load_model
 from source.injection import Injector, parse_spans
 from source.mock_tcu import MockTCU
-from source.motor import GraspSignal, MotorThread, connect_motor
+from source.motor import MOTOR_LOG_FILE, GraspSignal, MotorThread, connect_motor
 from source.pipeline import Acquisition, Pipeline
+from source.publish import push_session
 from source.recording import Recording, RecordedSource, SessionWriter, new_session_folder
 from source.stiffness_controller import State
 from source.trigno import TrignoSource
@@ -66,6 +67,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--duration", type=float, help="with --headless: seconds to run")
     parser.add_argument("--out", type=Path, help="record the run in a new session folder in here")
     parser.add_argument("--label", help="with --out: added to the session folder name")
+    parser.add_argument("--push", action="store_true",
+                        help="with --out: commit the session folder and git push it at the end "
+                             "(the repository is public: never put names in --label)")
     parser.add_argument("--motor", action="store_true", help="drive the tendon motor")
     parser.add_argument("--motor-port", default=settings.MOTOR_PORT,
                         help=f"serial port of the motor (default {settings.MOTOR_PORT})")
@@ -99,6 +103,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             args.inject = parse_spans(args.inject)
         except ValueError as error:
             parser.error(f"--inject: {error}")
+    if args.push and args.out is None:
+        parser.error("--push needs --out: only a recorded session can be pushed")
     if args.cues is not None and args.out is None:
         parser.error("--cues needs --out: the cues are saved as labels.csv with the recording")
     return args
@@ -205,13 +211,31 @@ def show_until_done(args: argparse.Namespace, pipeline: Pipeline, acquisition: A
             print(status_line(pipeline), flush=True)
 
 
-def start_motor(args: argparse.Namespace, pipeline: Pipeline) -> tuple[Any, MotorThread]:
-    """Connect the tendon motor with --control and start driving it from the pipeline."""
+def start_motor(args: argparse.Namespace, pipeline: Pipeline,
+                session: SessionWriter | None) -> tuple[Any, MotorThread]:
+    """Connect the tendon motor with --control and start driving it from the pipeline;
+    with a session, the motor is logged in motor.csv next to emg.csv."""
     motors, controller = connect_motor(args.motor_port, control=args.control,
                                        hold=lambda: pipeline.state == State.STIFFENED)
-    motor_thread = MotorThread(controller, GraspSignal(pipeline), pipeline.message)
+    log_path = session.folder / MOTOR_LOG_FILE if session is not None else None
+    motor_thread = MotorThread(controller, GraspSignal(pipeline), pipeline.message, log_path)
     motor_thread.start()
     return motors, motor_thread
+
+
+def finish_session(args: argparse.Namespace, session: SessionWriter, pipeline: Pipeline,
+                   acquisition: Acquisition, protocol: CueProtocol | None) -> None:
+    """Write the end of the recording (labels, test-signal times) and push it with --push."""
+    calibration = pipeline.calibration.to_dict() if pipeline.calibration else None
+    session.finish(pipeline.messages, acquisition.error, calibration, args.method)
+    if protocol is not None:
+        protocol.write_labels(session.folder)
+    if acquisition.injector is not None and \
+            acquisition.injector.write(session.folder, pipeline.stream_time) is not None:
+        print("Test-signal times saved to injections.csv")
+    print(f"Session saved to {session.folder}")
+    if args.push:
+        push_session(session.folder)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -254,7 +278,7 @@ def main(argv: list[str] | None = None) -> int:
     motors = motor_thread = None
     try:
         if args.motor:
-            motors, motor_thread = start_motor(args, pipeline)
+            motors, motor_thread = start_motor(args, pipeline, session)
         show_until_done(args, pipeline, acquisition, protocol)
     except KeyboardInterrupt:
         print("Interrupted")
@@ -268,13 +292,7 @@ def main(argv: list[str] | None = None) -> int:
         if mock is not None:
             mock.stop()
         if session is not None:
-            calibration = pipeline.calibration.to_dict() if pipeline.calibration else None
-            session.finish(pipeline.messages, acquisition.error, calibration, args.method)
-            if protocol is not None:
-                protocol.write_labels(session.folder)
-            if injector.write(session.folder, pipeline.stream_time) is not None:
-                print("Test-signal times saved to injections.csv")
-            print(f"Session saved to {session.folder}")
+            finish_session(args, session, pipeline, acquisition, protocol)
     return 1 if acquisition.error else 0
 
 

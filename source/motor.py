@@ -18,14 +18,21 @@ With velocity control (--control velocity) VelocityEMGController uses the same
 signal as a speed: a grasp closes the finger, faster the harder the grip, rest
 opens it, and while STIFFENED the finger stands still.
 
+With a log path (run_emg.py --out) MotorThread writes motor.csv in the session folder,
+one row per motor step (MOTOR_RATE_HZ): see MOTOR_LOG_COLUMNS. time_s is the stream time
+of emg.csv, so the motor can be lined up with the EMG, the cues and the test signal.
+
 The motor runs in extended position mode (4) in both cases, so open and closed may lie on
 both sides of the 0/4095 wrap. Only motor MOTOR_ID is touched.
 """
 
+import csv
+import math
 import threading
 import time
 from collections import deque
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import settings
@@ -33,6 +40,12 @@ from source.pipeline import Pipeline
 from source.stiffness_controller import State
 
 TICKS_PER_TURN = 4096
+MOTOR_LOG_FILE = "motor.csv"
+# time_s: stream time; state: the controller state; grasp: the signal the controller got
+# (0-1); target/goal: where the controller wants to go and the goal position it sent
+# (rate limited); present: where the motor is; closure: present as 0 = open, 1 = closed
+MOTOR_LOG_COLUMNS = ["time_s", "state", "grasp", "target_ticks", "goal_ticks",
+                     "present_ticks", "closure"]
 
 
 class GraspSignal:
@@ -74,11 +87,12 @@ class MotorThread:
     """Runs the motor controller's loop in its own thread."""
 
     def __init__(self, controller: Any, signal: GraspSignal,
-                 message: Callable[[str], None] = print) -> None:
-        # controller: a ProportionalEMGController from source/controllers.py
+                 message: Callable[[str], None] = print, log_path: Path | None = None) -> None:
+        # controller: a Proportional- or VelocityEMGController from source/controllers.py
         self.controller = controller
         self.signal = signal
         self.message = message
+        self.log_path = log_path
         self.error: str | None = None
         self.thread = threading.Thread(target=self.run, name="motor", daemon=True)
 
@@ -89,16 +103,54 @@ class MotorThread:
 
     def run(self) -> None:
         """The thread: the controller's own loop. Any motor error stops only the motor."""
+        log = MotorLog(self.log_path, self.controller, self.signal.pipeline) \
+            if self.log_path is not None else None
         try:
-            self.controller.run(self.signal, verbose=False)
+            self.controller.run(self.signal, verbose=False,
+                                on_step=log.write if log is not None else None)
         except Exception as error:  # pylint: disable=broad-exception-caught
             self.error = f"{type(error).__name__}: {error}"
             self.message(f"Motor control stopped: {self.error}")
+        finally:
+            if log is not None:
+                log.close()
 
     def stop(self) -> None:
         """Stop the controller (the finger returns to open) and wait for the thread."""
         self.controller.stop()
         self.thread.join(timeout=5.0)
+
+
+class MotorLog:
+    """Writes motor.csv: one row per motor step; see MOTOR_LOG_COLUMNS."""
+
+    def __init__(self, path: Path, controller: Any, pipeline: Pipeline) -> None:
+        self.controller = controller
+        self.pipeline = pipeline
+        self.last_flush = time.monotonic()
+        # pylint: disable-next=consider-using-with  # closed in close()
+        self.file = open(path, "w", newline="", encoding="utf-8")
+        self.writer = csv.writer(self.file)
+        self.writer.writerow(MOTOR_LOG_COLUMNS)
+
+    def write(self, grasp: float, target: float, goal: int) -> None:
+        """One row, after a controller step; the present position is read from the motor."""
+        controller = self.controller
+        try:
+            present = float(controller.motors.get_position(controller.motor_id))
+        except Exception:  # pylint: disable=broad-exception-caught  # a missed read is no stop
+            present = math.nan
+        closure = (present - controller.open_pos) / (controller.closed_pos - controller.open_pos)
+        self.writer.writerow([f"{self.pipeline.stream_time:.4f}", self.pipeline.state.name,
+                              f"{grasp:.4f}", f"{target:.1f}", goal, f"{present:.0f}",
+                              f"{closure:.4f}"])
+        if time.monotonic() - self.last_flush >= 1.0:  # keep the data on disk if the PC dies
+            self.file.flush()
+            self.last_flush = time.monotonic()
+
+    def close(self) -> None:
+        """Close motor.csv."""
+        self.file.close()
 
 
 def turn_shift(present: int, open_pos: int, closed_pos: int) -> int:

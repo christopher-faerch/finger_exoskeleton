@@ -13,11 +13,17 @@ DE FIRE KØRSLER (live Trigno + motor, dobbeltklik eller kør fra PowerShell):
   run_position_rnn.bat   3. positionsstyring + RNN (GRU, models\gru.pt)
   run_velocity_rnn.bat   4. hastighedsstyring + RNN (GRU, models\gru.pt)
 Tryk k i vinduet for at lægge simuleret tremor på det live signal, k igen for at stoppe.
-Kørslen gemmes i measurements\ med tremor-tiderne i injections.csv.
+Kørslen gemmes i measurements\: emg.csv, motor.csv (motorens mål og position, 50 Hz) og
+tremor-tiderne i injections.csv. Når vinduet lukkes, committes og pushes mappen til GitHub
+(--push). Fejler push (fx intet net), ligger den committet lokalt: kør git push senere.
 Positionsstyring: fingeren følger grebet. Hastighedsstyring: grebet bestemmer, hvor hurtigt
 fingeren lukker, afslapning åbner den, og ved tremor står den stille (hastigheder i settings.py).
 Ekstra valg sendes videre, fx: run_velocity_dsp.bat --motor-port COM4   eller   --calibrate
 Uden en gyldig models\gru.pt kører 3 og 4 på DSP og skriver det i vinduet.
+
+Sammenlign de fire kombinationer (alle kørsler, metode og styring læses fra session.json):
+.venv\Scripts\python.exe evaluate_injection.py --sessions measurements\*_pos-dsp measurements\*_vel-dsp measurements\*_pos-gru measurements\*_vel-gru --out eval.json
+PowerShell udvider ikke *, så skriv mapperne, eller brug: (Get-ChildItem measurements\*_???-???).FullName
 
 Kun vis emg data (ingen optagelse, ingen motor):
 .venv\Scripts\python.exe run_emg.py --source trigno --calibration measurements\plac_calibration.json

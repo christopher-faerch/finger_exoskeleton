@@ -121,10 +121,12 @@ class EMGPositionController:
             self.motors.sendMotorCommand(self.motor_id, self._limit(self.open_pos, now))
         self.motors.sendMotorCommand(self.motor_id, int(round(self.open_pos)))
 
-    def run(self, get_activation, duration=None, verbose=True):
+    def run(self, get_activation, duration=None, verbose=True, on_step=None):
         """Blocking fixed-rate loop. `get_activation()` returns the latest activation
         (0..1) or None/NaN if there is no valid value. Ends after `duration` s, on
-        stop(), or Ctrl+C, and always returns the finger to the open position."""
+        stop(), or Ctrl+C, and always returns the finger to the open position.
+        on_step(activation, target, command), if given, is called after every step
+        (e.g. to log the motor)."""
         self._stop = False
         self._t_last = None
         t_end = None if duration is None else time.perf_counter() + duration
@@ -140,6 +142,8 @@ class EMGPositionController:
                 else:                                # no valid value: hold briefly, then open
                     value = last if now - t_valid <= self.signal_timeout_s else 0.0
                 activation, target, command = self.step(value)
+                if on_step is not None:
+                    on_step(activation, target, command)
                 if verbose:
                     print(f"emg={activation:5.2f}  target={target:7.1f}  command={command}  "
                           + self.status())

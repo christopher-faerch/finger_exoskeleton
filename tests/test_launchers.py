@@ -4,10 +4,12 @@ import shlex
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pytest
 
 import run_emg
 from source.injection import INJECTIONS_FILE, read_episodes
+from source.injection_evaluation import read_motor_log
 from source.motor import connect_motor
 from tests.fakes import FakeMotors
 
@@ -56,3 +58,7 @@ def test_launcher_runs_with_tremor(name: str, tmp_path: Path,
     (folder,) = [path for path in tmp_path.iterdir() if path.is_dir()]
     assert len(read_episodes(folder / INJECTIONS_FILE)) == 1
     assert made[0].sent
+    motor = read_motor_log(folder)  # the motor log, on the stream clock of emg.csv
+    assert motor is not None and len(motor.times) > 10
+    assert 0.0 <= motor.times[0] < motor.times[-1] <= 1.6
+    assert np.all((motor.closure > -0.05) & (motor.closure < 1.05))

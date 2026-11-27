@@ -11,7 +11,8 @@ import evaluate_injection
 import run_emg
 import settings
 from source.injection import INJECTIONS_FILE, Episode, Injector, parse_spans, read_episodes
-from source.injection_evaluation import Run, evaluate_run
+from source.injection_evaluation import (MotorRun, Run, compare, evaluate_run, format_comparison,
+                                         motor_metrics)
 from source.pipeline import Acquisition, Pipeline
 from source.recording import RecordedSource
 from source.signal_processing import EMGBlock, SignalProcessor
@@ -152,3 +153,47 @@ def test_evaluate_injection_on_a_cue_recording(capsys: pytest.CaptureFixture[str
 def test_evaluate_injection_needs_spans() -> None:
     """Without --inject and without injections.csv there is nothing to score."""
     assert evaluate_injection.main(["--sessions", str(RECORDING)]) == 1
+
+
+def motor_run(seconds: float = 20.0, rate: float = 50.0) -> MotorRun:
+    """Rest 0-2 s, grasp 2-14 s (closing over 1 s), rest after; 5 Hz shake during 6-9 s."""
+    times = np.arange(0, seconds, 1 / rate)
+    gripping = (times >= 2) & (times < 14)
+    closure = np.where(gripping, np.clip(times - 2, 0, 1) * 0.8, 0.0)
+    after = times >= 14  # opens again over 0.5 s
+    closure[after] = np.clip(0.8 - (times[after] - 14) * 1.6, 0, 1)
+    shaking = (times >= 6) & (times < 9)
+    closure[shaking] += 0.05 * np.sin(2 * np.pi * 5 * times[shaking])
+    states = ["GRASP_ARMED" if grip else "IDLE" for grip in gripping]
+    return MotorRun(times, states, closure)
+
+
+def test_motor_metrics_see_the_shake_and_the_timing() -> None:
+    """The 5 Hz shake shows inside the episode, not outside; closing and opening are timed."""
+    episodes = [Episode(6.0, 9.0), Episode(16.0, 18.0)]
+    per_episode = [{"start_s": 6.0, "end_s": 9.0, "gripping": True},
+                   {"start_s": 16.0, "end_s": 18.0, "gripping": False}]
+    result = motor_metrics(motor_run(), episodes, per_episode)
+    assert result["motor_tremor_in"] > 10 * result["motor_tremor_out"]
+    assert result["motor_range_in"] == pytest.approx(0.1, abs=0.01)
+    assert result["closing_time_s"] == pytest.approx(0.625, abs=0.03)  # 0.5 of 0.8 per s
+    assert result["opening_time_s"] == pytest.approx(0.44, abs=0.03)  # down to 0.1 at 1.6/s
+    assert result["n_closings"] == "1/1"
+    assert result["mean_closure_gripping"] == pytest.approx(0.73, abs=0.02)
+
+
+def test_comparison_groups_the_four_combinations() -> None:
+    """Results are averaged per control + method; missing values are left out."""
+    results: list[dict] = [
+        {"motor_control": "position", "method": "dsp", "detection_rate": 1.0},
+        {"motor_control": "position", "method": "dsp", "detection_rate": 0.5},
+        {"motor_control": "velocity", "method": "gru", "detection_rate": None,
+         "grasp_accuracy_in": 0.9}]
+    table = compare(results)
+    assert list(table) == ["position + dsp", "velocity + gru"]
+    assert table["position + dsp"]["detection_rate"] == 0.75
+    assert table["position + dsp"]["sessions"] == 2
+    assert table["velocity + gru"]["detection_rate"] is None
+    assert table["velocity + gru"]["grasp"] == 0.9
+    text = format_comparison(table)
+    assert "position + dsp" in text and "Close[s]" in text

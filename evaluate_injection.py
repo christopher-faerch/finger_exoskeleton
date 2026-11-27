@@ -12,17 +12,24 @@ Examples:
   The same with the GRU for the grasp:
     python evaluate_injection.py --sessions ... --method gru --model models/gru.pt
 
-The recording is replayed through the same pipeline and controller as live. See
-source/injection_evaluation.py for what the numbers mean.
+  Compare the four combinations (position/velocity control x DSP/GRU) over many runs:
+    python evaluate_injection.py --sessions measurements/*_pos-dsp measurements/*_vel-dsp
+                                 measurements/*_pos-gru measurements/*_vel-gru --out eval.json
+
+The recording is replayed through the same pipeline and controller as live, with the
+method it was recorded with (session.json) unless --method says otherwise. Runs with a
+motor.csv also get the motor metrics. With more than one session a table compares the
+combinations. See source/injection_evaluation.py for what the numbers mean.
 """
 
 import argparse
 import json
 from pathlib import Path
+from typing import Any
 
 from source.gru.inference import load_model
 from source.injection import parse_spans
-from source.injection_evaluation import evaluate_session, format_result
+from source.injection_evaluation import compare, evaluate_session, format_comparison, format_result
 from source.recording import Recording
 
 
@@ -38,7 +45,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--calibration", type=Path,
                         help="calibration file; default: the one stored in session.json, "
                              "else the calibration routine at the start of the recording")
-    parser.add_argument("--method", choices=["dsp", "gru"], default="dsp")
+    parser.add_argument("--method", choices=["dsp", "gru"],
+                        help="replay with this method (default: the one in session.json)")
     parser.add_argument("--model", type=Path, default=Path("models/gru.pt"),
                         help="with --method gru: the model file")
     parser.add_argument("--out", type=Path, help="also write the results to this JSON file")
@@ -54,29 +62,39 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     """Replay every session and print its metrics."""
     args = parse_args(argv)
-    model = None
-    if args.method == "gru":
-        model, note = load_model(args.model)
-        print(note)
-        if model is None:
-            return 1
+    models: dict[str, Any] = {"dsp": None}
 
     results = []
     for folder in args.sessions:
+        metadata = Recording(folder).metadata
+        method = args.method or metadata.get("method", "dsp")
+        if method not in models:
+            model, note = load_model(args.model)
+            print(note)
+            if model is None:
+                return 1
+            models[method] = model
         if args.calibration is not None:
             calibration = json.loads(args.calibration.read_text(encoding="utf-8"))
         else:
-            calibration = Recording(folder).metadata.get("calibration")
+            calibration = metadata.get("calibration")
         try:
-            result = evaluate_session(folder, calibration, args.inject, model)
+            result = evaluate_session(folder, calibration, args.inject, models[method])
         except ValueError as error:
             print(error)
             return 1
-        result["method"] = args.method
+        result["method"] = method
+        result["motor_control"] = metadata.get("motor_control")
         results.append(result)
         print(format_result(result))
+    output: Any = results
+    if len(results) > 1:
+        table = compare(results)
+        print()
+        print(format_comparison(table))
+        output = {"sessions": results, "comparison": table}
     if args.out is not None:
-        args.out.write_text(json.dumps(results, indent=2), encoding="utf-8")
+        args.out.write_text(json.dumps(output, indent=2), encoding="utf-8")
     return 0
 
 
