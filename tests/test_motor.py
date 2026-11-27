@@ -3,11 +3,12 @@
 from types import SimpleNamespace
 from typing import Any
 
+import numpy as np
 import pytest
 
 import settings
 from source.calibration import Activation
-from source.controllers import VelocityEMGController
+from source.controllers import ThresholdEMGController, VelocityEMGController
 from source.motor import GraspSignal, connect_motor
 from source.stiffness_controller import State
 from tests.fakes import FakeMotors
@@ -149,3 +150,40 @@ def test_velocity_stops_at_closed_and_holds_during_tremor() -> None:
     motors, held = velocity_controller(hold=True)
     run_steps(held, 1.0, 1.0)
     assert motors.position == settings.OPEN_POS
+
+
+def test_connect_builds_the_threshold_controller() -> None:
+    """control="threshold" gives the open/closed controller with the thresholds from settings.py."""
+    _, controller = connect_motor("COM0", motors_class=FakeMotors, control="threshold")
+    assert isinstance(controller, ThresholdEMGController)
+    assert (controller.on_threshold, controller.off_threshold) == (
+        settings.THRESHOLD_ON, settings.THRESHOLD_OFF)
+
+
+def test_threshold_does_not_flicker_on_a_noisy_held_grip() -> None:
+    """A grip that varies about 20 % around 1.0 keeps the finger closed: the command never reopens."""
+    _, controller = connect_motor("COM0", motors_class=FakeMotors, control="threshold")
+    rng = np.random.default_rng(0)
+    now = 0.0
+    for _ in range(100):  # close (takes about 1.3 s)
+        controller.step(1.0, now)
+        now += 0.02
+    commands = []
+    for _ in range(500):  # 10 s of a noisy held grip
+        _, _, command = controller.step(float(np.clip(rng.normal(1.0, 0.25), 0.0, 1.0)), now)
+        commands.append(command)
+        now += 0.02
+    assert set(commands) == {settings.CLOSED_POS}
+
+
+def test_threshold_opens_when_the_hand_relaxes() -> None:
+    """Below the off threshold for long enough, the finger goes back to open."""
+    _, controller = connect_motor("COM0", motors_class=FakeMotors, control="threshold")
+    now = 0.0
+    for _ in range(100):
+        controller.step(1.0, now)
+        now += 0.02
+    for _ in range(200):
+        _, _, command = controller.step(0.05, now)
+        now += 0.02
+    assert command == settings.OPEN_POS

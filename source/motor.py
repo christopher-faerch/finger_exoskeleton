@@ -116,14 +116,19 @@ def connect_motor(port: str, motors_class: Any = None, control: str = "position"
     """
     Connect to the tendon motor and build the controller. Returns (motors, controller);
     close motors after the controller has stopped.
-    control: "position" (the finger follows the grasp) or "velocity" (the grasp sets the
-    speed); hold, with velocity control: True keeps the finger where it is.
+    control: "position" (the finger follows the grasp), "velocity" (the grasp sets the
+    speed) or "threshold" (open or closed, with hysteresis); hold, with velocity control:
+    True keeps the finger where it is.
     """
-    if control not in ("position", "velocity"):
-        raise ValueError(f"Unknown motor control {control!r}: use position or velocity")
+    if control not in ("position", "velocity", "threshold"):
+        raise ValueError(f"Unknown motor control {control!r}: use position, velocity or threshold")
     # Imported here so the EMG side works without the Dynamixel SDK installed
     # pylint: disable=import-outside-toplevel
-    from source.controllers import ProportionalEMGController, VelocityEMGController
+    from source.controllers import (
+        ProportionalEMGController,
+        ThresholdEMGController,
+        VelocityEMGController,
+    )
 
     if motors_class is None:
         from source.DynamixelHardwareInterface import Motors
@@ -159,6 +164,13 @@ def connect_motor(port: str, motors_class: Any = None, control: str = "position"
         controller = VelocityEMGController(
             motors, motor_id, close_speed=settings.VELOCITY_CLOSE_SPEED,
             open_speed=settings.VELOCITY_OPEN_SPEED, hold=hold, **common)
+    elif control == "threshold":
+        controller = ThresholdEMGController(
+            motors, motor_id, open_pos=open_pos, closed_pos=closed_pos,
+            max_speed=settings.MAX_SPEED, rate_hz=settings.MOTOR_RATE_HZ,
+            signal_timeout_s=settings.SIGNAL_TIMEOUT_S, on_threshold=settings.THRESHOLD_ON,
+            off_threshold=settings.THRESHOLD_OFF, on_dwell_s=settings.THRESHOLD_ON_TIME_S,
+            off_dwell_s=settings.THRESHOLD_OFF_TIME_S, mode="hold")
     else:
         controller = ProportionalEMGController(motors, motor_id, max_speed=settings.MAX_SPEED,
                                                **common)

@@ -61,7 +61,7 @@ def test_a_synthetic_model_is_not_used_with_the_motor(
         smoke_model: Path, capsys: pytest.CaptureFixture[str],
         monkeypatch: pytest.MonkeyPatch) -> None:
     """With --motor a model trained on made-up data is refused; the DSP drives the motor."""
-    monkeypatch.setattr(run_emg, "connect_motor", lambda port: (_ for _ in ()).throw(
+    monkeypatch.setattr(run_emg, "connect_motor", lambda port, **_: (_ for _ in ()).throw(
         RuntimeError("stop before the motor")))
     with pytest.raises(RuntimeError, match="stop before the motor"):
         run_emg.main(REPLAY + ["--model", str(smoke_model), "--duration", "1", "--motor"])

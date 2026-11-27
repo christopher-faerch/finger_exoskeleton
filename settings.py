@@ -93,7 +93,16 @@ HOLD_WINDOW_S = 1.0  # while STIFFENED: hold the mean grasp of this long before
 DEADBAND = 0.1
 GAMMA = 1.0
 MOTOR_CONTROL = "position"  # "position": the finger follows the grasp; "velocity": the grasp
-# sets the closing speed, relaxing opens the finger, and tremor holds it where it is
+# sets the closing speed, relaxing opens the finger, and tremor holds it where it is;
+# "threshold": open or closed only (see below), the steadiest while a grip is held
+# Threshold control (grasp 0 = rest, 1 = the calibrated firm grip). The finger closes when the
+# grasp stays above ON for ON_TIME_S and opens when it stays below OFF for OFF_TIME_S. The gap
+# between ON and OFF is what keeps a held grip from flickering: the EMG of a steady grip varies
+# by about 20 % around its mean (measured on the cue recordings of 2026-11-13).
+THRESHOLD_ON = 0.30
+THRESHOLD_OFF = 0.15
+THRESHOLD_ON_TIME_S = 0.10
+THRESHOLD_OFF_TIME_S = 0.30
 VELOCITY_CLOSE_SPEED = 1000.0  # ticks per second at full grasp (velocity control)
 VELOCITY_OPEN_SPEED = 1000.0  # ticks per second when the hand relaxes (velocity control)
 

@@ -10,6 +10,7 @@ Examples (see kommandoer.txt for the bench commands):
   python run_emg.py --source recorded --file measurements/<session folder>   replay
   python run_emg.py --source trigno --method gru --model models/gru.pt   the GRU instead of DSP
   python run_emg.py --source trigno --motor --control velocity   the grasp sets the motor speed
+  python run_emg.py --source trigno --motor --control threshold  open or closed, no flicker
   python run_emg.py --source trigno --out measurements --cues protocols/greb_1.csv
                                                     show cues and save them as labels.csv
   add --headless --duration 60 for status lines instead of a window
@@ -68,10 +69,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--motor", action="store_true", help="drive the tendon motor")
     parser.add_argument("--motor-port", default=settings.MOTOR_PORT,
                         help=f"serial port of the motor (default {settings.MOTOR_PORT})")
-    parser.add_argument("--control", choices=["position", "velocity"],
+    parser.add_argument("--control", choices=["position", "velocity", "threshold"],
                         default=settings.MOTOR_CONTROL,
                         help="with --motor: position (the finger follows the grasp) or velocity "
-                             "(the grasp sets the closing speed, rest opens, tremor holds) "
+                             "(the grasp sets the closing speed, rest opens, tremor holds) or threshold "
+                             "(open or closed, with hysteresis) "
                              f"(default {settings.MOTOR_CONTROL})")
     parser.add_argument("--calibration", type=Path,
                         help="calibration file: used if it fits, written after a calibration "
