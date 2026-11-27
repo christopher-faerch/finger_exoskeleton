@@ -12,6 +12,9 @@ Examples:
   The same with the GRU for the grasp:
     python evaluate_injection.py --sessions ... --method gru --model models/gru.pt
 
+  Score what happened live on the bench (from motor.csv; no GRU model needed):
+    python evaluate_injection.py --sessions measurements/<folder> ... --live
+
   Compare the four combinations (position/velocity control x DSP/GRU) over many runs:
     python evaluate_injection.py --sessions measurements/*_pos-dsp measurements/*_vel-dsp
                                  measurements/*_pos-gru measurements/*_vel-gru --out eval.json
@@ -49,6 +52,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="replay with this method (default: the one in session.json)")
     parser.add_argument("--model", type=Path, default=Path("models/gru.pt"),
                         help="with --method gru: the model file")
+    parser.add_argument("--live", action="store_true",
+                        help="score the controller states logged live in motor.csv instead of "
+                             "replaying emg.csv (needs no GRU model)")
     parser.add_argument("--out", type=Path, help="also write the results to this JSON file")
     args = parser.parse_args(argv)
     if args.inject is not None:
@@ -68,7 +74,7 @@ def main(argv: list[str] | None = None) -> int:
     for folder in args.sessions:
         metadata = Recording(folder).metadata
         method = args.method or metadata.get("method", "dsp")
-        if method not in models:
+        if method not in models and not args.live:
             model, note = load_model(args.model)
             print(note)
             if model is None:
@@ -79,7 +85,8 @@ def main(argv: list[str] | None = None) -> int:
         else:
             calibration = metadata.get("calibration")
         try:
-            result = evaluate_session(folder, calibration, args.inject, models[method])
+            result = evaluate_session(folder, calibration, args.inject, models.get(method),
+                                      live=args.live)
         except ValueError as error:
             print(error)
             return 1

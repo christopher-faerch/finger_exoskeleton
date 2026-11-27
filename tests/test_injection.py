@@ -11,7 +11,8 @@ import evaluate_injection
 import run_emg
 import settings
 from source.injection import INJECTIONS_FILE, Episode, Injector, parse_spans, read_episodes
-from source.injection_evaluation import (MotorRun, Run, compare, evaluate_run, format_comparison,
+from source.injection_evaluation import (MotorRun, Run, compare, direction_changes, evaluate_run,
+                                         format_comparison, grip_metrics, live_run, read_motor_log,
                                          motor_metrics)
 from source.pipeline import Acquisition, Pipeline
 from source.recording import RecordedSource
@@ -197,3 +198,39 @@ def test_comparison_groups_the_four_combinations() -> None:
     assert table["velocity + gru"]["grasp"] == 0.9
     text = format_comparison(table)
     assert "position + dsp" in text and "Close[s]" in text
+
+
+def grip_run() -> Run:
+    """Two grips (2-6 s and 10-14 s), the first stiffened at 4 s; 20 blocks per second."""
+    times = np.arange(0, 16, 0.05)
+    states = [State.IDLE] * len(times)
+    for i, t in enumerate(times):
+        if 2 <= t < 6 or 10 <= t < 14:
+            states[i] = State.GRASP_ARMED
+        if 4 <= t < 6:
+            states[i] = State.STIFFENED
+    return Run(times, states, np.zeros(len(times)))
+
+
+def test_grip_metrics_time_the_reaction_from_the_grip_not_the_key_press() -> None:
+    """An episode switched on at rest (1 s) counts from the grip start (2 s); a grip
+    without the test signal is a clean grip."""
+    result = grip_metrics(grip_run(), [Episode(1.0, 7.0)])
+    assert result["tremor_grips"] == 1 and result["grip_detection_rate"] == 1.0
+    assert result["median_reaction_s"] == pytest.approx(2.0)
+    assert result["clean_grips"] == 1 and result["false_stiffened_grips"] == 0
+
+
+def test_live_scoring_reads_the_states_of_the_motor_log(tmp_path: Path) -> None:
+    """motor.csv states become a Run; turn-arounds count only real direction changes."""
+    rows = ["time_s,state,grasp,target_ticks,goal_ticks,present_ticks,closure"]
+    closure = [0.0, 0.5, 1.0, 1.0, 0.99, 1.0, 0.5, 0.0]  # one close, one open, a 1 % wobble
+    for i, value in enumerate(closure):
+        state = "GRASP_ARMED" if 0 < value else "IDLE"
+        rows.append(f"{i * 0.02},{state},0.5,0,0,0,{value}")
+    (tmp_path / "motor.csv").write_text("\n".join(rows) + "\n")
+    motor = read_motor_log(tmp_path)
+    assert motor is not None and motor.grasp is not None
+    run = live_run(motor)
+    assert run.states[1] == State.GRASP_ARMED
+    assert direction_changes(motor.closure) == 1

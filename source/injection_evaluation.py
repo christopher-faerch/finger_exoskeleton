@@ -21,6 +21,15 @@ Per episode (one span with the test signal on):
                  was still STIFFENED from the episode before)
   release_s      from the end of the episode until the controller left STIFFENED
 
+Per grip (one stretch of GRASP_ARMED/STIFFENED; a long episode can span several grips,
+and an episode switched on at rest only starts to count when the grip starts):
+  tremor_grips               grips with the test signal on for at least MIN_OVERLAP_S
+  grip_detection_rate        share of them that reached STIFFENED while the signal was on
+  median_reaction_s          from the later of grip start and episode start to STIFFENED:
+                             the controller's own reaction time
+  clean_grips                grips that never overlap an episode (or MARGIN_S after it)
+  false_stiffened_grips      clean grips that reached STIFFENED anyway
+
 Over the whole recording:
   detection_rate             share of the gripping episodes that reached STIFFENED
   stiffened_at_rest          episodes at rest that reached STIFFENED anyway (the test
@@ -50,6 +59,13 @@ The motor log holds the states the controller had live.
   opening_time_s             median time from the end of a grasp (-> IDLE) until the finger
                              is back below OPEN_LEVEL
   mean_closure_gripping      mean closure while gripping outside the episodes
+  direction_changes_per_min  how often the finger turned around (moves of at least
+                             REVERSAL_STEP), per minute of the log: flicker. Real
+                             grasps give two per grasp
+
+evaluate_session(..., live=True) scores the controller states that motor.csv logged
+live instead of replaying emg.csv: it needs no GRU model and shows exactly what
+happened on the bench (at the motor's 50 Hz).
 """
 
 import csv
@@ -75,6 +91,7 @@ GRASPING = (State.GRASP_ARMED, State.STIFFENED)
 MOTOR_TREMOR_BAND_HZ = (3.0, 8.0)  # around the 5 Hz of the test signal
 CLOSED_LEVEL = 0.5  # closure that counts as "closed" for closing_time_s
 OPEN_LEVEL = 0.1  # closure that counts as "open again" for opening_time_s
+REVERSAL_STEP = 0.03  # a move of the finger smaller than this (closure) is not a turn-around
 
 
 @dataclass
@@ -134,6 +151,7 @@ class MotorRun:
     times: np.ndarray  # stream time, s
     states: list[str]  # controller state names
     closure: np.ndarray  # 0 = open, 1 = closed (NaN where the position could not be read)
+    grasp: np.ndarray | None = None  # the grasp signal the controller got (0-1)
 
 
 def read_motor_log(folder: Path) -> MotorRun | None:
@@ -147,7 +165,29 @@ def read_motor_log(folder: Path) -> MotorRun | None:
         return None
     return MotorRun(np.array([float(row["time_s"]) for row in rows]),
                     [row["state"] for row in rows],
-                    np.array([float(row["closure"]) for row in rows]))
+                    np.array([float(row["closure"]) for row in rows]),
+                    np.array([float(row["grasp"]) for row in rows]))
+
+
+def live_run(motor: MotorRun) -> Run:
+    """The controller states as they were live, from the motor log."""
+    grasp = motor.grasp if motor.grasp is not None else np.zeros(len(motor.times))
+    return Run(motor.times, [State[name] for name in motor.states], grasp)
+
+
+def direction_changes(closure: np.ndarray, step: float = REVERSAL_STEP) -> int:
+    """How often the closure turns around, counting only moves of at least `step`."""
+    count, direction, anchor = 0, 0, None
+    for value in closure[~np.isnan(closure)]:
+        if anchor is None:
+            anchor = value
+        elif abs(value - anchor) >= step:
+            new = 1 if value > anchor else -1
+            count += int(direction not in (0, new))
+            direction, anchor = new, value
+        elif direction and (value - anchor) * direction > 0:
+            anchor = value  # still moving the same way
+    return count
 
 
 def rms(values: np.ndarray) -> float | None:
@@ -204,6 +244,8 @@ def motor_metrics(motor: MotorRun, episodes: list[Episode], per_episode: list[di
         "motor_tremor_out": rms(band[gripping & ~affected]),
         "motor_range_in": float(np.mean(range_in)) if range_in else None,
         **closing_and_opening(motor, gripping),
+        "direction_changes_per_min": direction_changes(motor.closure)
+        / max((motor.times[-1] - motor.times[0]) / 60, 1e-9),
         "mean_closure_gripping": float(np.mean(motor.closure[steady])) if steady.any() else None,
     }
 
@@ -253,6 +295,42 @@ def episode_metrics(run: Run, episode: Episode, reference: Run | None = None) ->
     return result
 
 
+MIN_OVERLAP_S = 1.0  # a grip must overlap the test signal this long to count as a tremor grip
+
+
+def grip_spans(run: Run) -> list[tuple[int, int]]:
+    """(first, last + 1) row of every stretch of GRASP_ARMED/STIFFENED."""
+    gripping = np.array([state in GRASPING for state in run.states] + [False])
+    starts = np.flatnonzero(gripping[1:] & ~gripping[:-1]) + 1
+    if gripping[0]:
+        starts = np.concatenate(([0], starts))
+    ends = np.flatnonzero(~gripping[1:] & gripping[:-1]) + 1
+    return list(zip(starts.tolist(), ends.tolist()))
+
+
+def grip_metrics(run: Run, episodes: list[Episode]) -> dict:
+    """Detection and reaction per grip; see the top of this file."""
+    inside, affected = episode_masks(run.times, episodes)
+    stiff = np.array([state == State.STIFFENED for state in run.states])
+    block_s = float(np.median(np.diff(run.times))) if len(run.times) > 1 else 0.0
+    detected, reactions, clean, false_alarms = [], [], 0, 0
+    for first, end in grip_spans(run):
+        grip = slice(first, end)
+        if np.count_nonzero(inside[grip]) * block_s >= MIN_OVERLAP_S:
+            rows = np.flatnonzero(inside[grip] & stiff[grip])
+            detected.append(rows.size > 0)
+            onset = first + int(np.argmax(inside[grip]))  # signal on and gripping
+            if rows.size and not stiff[onset]:
+                reactions.append(float(run.times[first + rows[0]] - run.times[onset]))
+        elif not affected[grip].any():
+            clean += 1
+            false_alarms += int(stiff[grip].any())
+    return {"tremor_grips": len(detected), "grips_detected": int(np.sum(detected)),
+            "grip_detection_rate": float(np.mean(detected)) if detected else None,
+            "median_reaction_s": float(np.median(reactions)) if reactions else None,
+            "clean_grips": clean, "false_stiffened_grips": false_alarms}
+
+
 def episode_masks(times: np.ndarray, episodes: list[Episode]) -> tuple[np.ndarray, np.ndarray]:
     """(inside an episode, inside or up to MARGIN_S after one) at every time."""
     inside = np.zeros(len(times), dtype=bool)
@@ -286,6 +364,7 @@ def evaluate_run(run: Run, episodes: list[Episode], reference: Run | None = None
     armed_minutes = np.sum(armed & ~affected) * block_s / 60
 
     result: dict = {
+        **grip_metrics(run, episodes),
         "episodes": per_episode,
         "n_episodes": len(episodes),
         "n_gripping": len(gripping),
@@ -322,12 +401,23 @@ def grasp_labels(folder: Path, times: np.ndarray) -> np.ndarray | None:
 
 
 def evaluate_session(folder: Path, calibration: dict | None, schedule: list[Episode] | None,
-                     model: Any = None) -> dict:
+                     model: Any = None, live: bool = False) -> dict:
     """
     Evaluate one session folder: with a schedule, the test signal is laid on now and
     the clean replay is the reference; without, the episodes come from injections.csv.
+    live: score the states logged in motor.csv instead of a replay (no schedule then).
     """
-    if schedule:
+    motor = read_motor_log(folder)
+    if live:
+        if schedule:
+            raise ValueError("live scoring uses the recorded test signal: no --inject")
+        if motor is None:
+            raise ValueError(f"{folder} has no {MOTOR_LOG_FILE} to score live")
+        episodes = read_episodes(folder / INJECTIONS_FILE)
+        if not episodes:
+            raise ValueError(f"{folder} has no {INJECTIONS_FILE}")
+        run, reference = live_run(motor), None
+    elif schedule:
         run = replay(folder, calibration, schedule, model)
         reference = replay(folder, calibration, None, model)
         episodes = schedule
@@ -338,11 +428,11 @@ def evaluate_session(folder: Path, calibration: dict | None, schedule: list[Epis
         run = replay(folder, calibration, None, model)
         reference = None
     result = evaluate_run(run, episodes, reference, grasp_labels(folder, run.times))
-    motor = read_motor_log(folder)
     if motor is not None:
         result.update(motor_metrics(motor, episodes, result["episodes"]))
     result["session"] = folder.name
     result["test_signal_added_now"] = bool(schedule)
+    result["scored"] = "live" if live else "replay"
     return result
 
 
@@ -359,6 +449,10 @@ def format_result(result: dict) -> str:
                      f"{'gripping' if episode['gripping'] else 'at rest ':8s}  {what:13s} "
                      f"latency {number(episode.get('latency_s'), ' s')}  "
                      f"release {number(episode.get('release_s'), ' s')}")
+    lines.append(f"  grips with tremor {result['tremor_grips']}: detected "
+                 f"{number(result['grip_detection_rate'])}, reaction "
+                 f"{number(result['median_reaction_s'], ' s')}; clean grips "
+                 f"{result['clean_grips']}, stiffened by mistake {result['false_stiffened_grips']}")
     lines.append(f"  detection rate {number(result['detection_rate'])}  "
                  f"median latency {number(result['median_latency_s'], ' s')}  "
                  f"stiffened at rest {result['stiffened_at_rest']}  "
@@ -379,18 +473,24 @@ def format_result(result: dict) -> str:
                      f"closing {number(result['closing_time_s'], ' s')} "
                      f"({result['n_closings']})  "
                      f"opening {number(result['opening_time_s'], ' s')}  "
-                     f"mean closure {number(result['mean_closure_gripping'])}")
+                     f"mean closure {number(result['mean_closure_gripping'])}  "
+                     f"turn-arounds {number(result['direction_changes_per_min'], '/min', 1)}")
     return "\n".join(lines)
 
 
 # The comparison table: (key in a result, column header, digits)
 COMPARISON_COLUMNS = [
+    ("tremor_grips", "TrGrips", 0), ("grip_detection_rate", "GripDet", 2),
+    ("median_reaction_s", "React[s]", 2), ("false_stiffened_grips", "FalseGr", 0),
     ("detection_rate", "Detect", 2), ("median_latency_s", "Lat[s]", 2),
     ("median_release_s", "Rel[s]", 2), ("stiffened_at_rest", "StRest", 1),
     ("false_stiffen_per_minute", "False/min", 2), ("grasp", "Grasp", 2),
     ("motor_tremor_in", "MTrIn", 3), ("motor_tremor_out", "MTrOut", 3),
     ("motor_range_in", "MRange", 2), ("closing_time_s", "Close[s]", 2),
-    ("opening_time_s", "Open[s]", 2)]
+    ("opening_time_s", "Open[s]", 2), ("direction_changes_per_min", "Turns/min", 1)]
+
+
+SUMMED = {"tremor_grips", "false_stiffened_grips", "stiffened_at_rest"}  # counts: summed
 
 
 def combination(result: dict) -> str:
@@ -411,7 +511,14 @@ def compare(results: list[dict]) -> dict[str, dict]:
             else:
                 values = [result.get(key) for result in group]
             known = [float(value) for value in values if value is not None]
-            row[key] = float(np.mean(known)) if known else None
+            if key in SUMMED:
+                row[key] = float(np.sum(known)) if known else None
+            else:
+                row[key] = float(np.mean(known)) if known else None
+        grips = sum(result.get("tremor_grips", 0) for result in group)
+        if grips:  # pooled over all grips, not a mean of per-session rates
+            row["grip_detection_rate"] = sum(result.get("grips_detected", 0)
+                                             for result in group) / grips
         table[name] = row
     return table
 
