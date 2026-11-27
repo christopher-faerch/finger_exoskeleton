@@ -1,4 +1,4 @@
-"""The six launchers run_{position,velocity,threshold}_{dsp,rnn}.bat/.sh start run_emg.py right."""
+"""The four launchers run_{threshold,velocity}_{dsp,rnn}.bat/.sh start run_emg.py right."""
 
 import shlex
 from pathlib import Path
@@ -16,7 +16,7 @@ from tests.fakes import FakeMotors
 ROOT = Path(__file__).resolve().parent.parent
 RECORDING = ROOT / "measurements" / "20261105-144738_trigno_to-lange-greb"
 LAUNCHERS = {f"run_{control}_{name}": (control, method)
-             for control in ("position", "velocity", "threshold")
+             for control in ("threshold", "velocity")
              for name, method in (("dsp", "dsp"), ("rnn", "gru"))}
 
 

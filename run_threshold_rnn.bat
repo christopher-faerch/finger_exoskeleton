@@ -1,5 +1,5 @@
 @echo off
-rem 6. Threshold control (open or closed) + RNN (GRU, models\gru.pt): live Trigno EMG drives the tendon motor.
+rem 2. Threshold position control (the finger is open or closed) + RNN (GRU, models\gru.pt): live Trigno EMG drives the tendon motor.
 rem Press k in the window to lay simulated tremor over the live EMG, k again to stop it.
 rem The run is saved in measurements\ (label thr-gru): EMG, motor (motor.csv) and tremor times
 rem (injections.csv), and is committed and pushed to GitHub at the end (--push).
