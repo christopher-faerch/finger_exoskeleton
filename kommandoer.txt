@@ -7,22 +7,27 @@ Motor: fingeren skal stå åben før start. Tag 12 V-stikket ud, hvis noget går
 Kalibreringen til den nuværende sensorplacering ligger i measurements\plac_calibration.json.
 
 
-DE FIRE KØRSLER (live Trigno + motor, dobbeltklik eller kør fra PowerShell):
-  run_position_dsp.bat   1. positionsstyring + signalbehandling (DSP)
-  run_velocity_dsp.bat   2. hastighedsstyring + signalbehandling (DSP)
-  run_position_rnn.bat   3. positionsstyring + RNN (GRU, models\gru.pt)
-  run_velocity_rnn.bat   4. hastighedsstyring + RNN (GRU, models\gru.pt)
+DE SEKS KØRSLER (live Trigno + motor, dobbeltklik eller kør fra PowerShell):
+  run_position_dsp.bat    1. positionsstyring + signalbehandling (DSP)
+  run_position_rnn.bat    2. positionsstyring + RNN (GRU, models\gru.pt)
+  run_velocity_dsp.bat    3. hastighedsstyring + signalbehandling (DSP)
+  run_velocity_rnn.bat    4. hastighedsstyring + RNN (GRU, models\gru.pt)
+  run_threshold_dsp.bat   5. threshold (kun åben/lukket) + signalbehandling (DSP)
+  run_threshold_rnn.bat   6. threshold (kun åben/lukket) + RNN (GRU, models\gru.pt)
 Tryk k i vinduet for at lægge simuleret tremor på det live signal, k igen for at stoppe.
 Kørslen gemmes i measurements\: emg.csv, motor.csv (motorens mål og position, 50 Hz) og
 tremor-tiderne i injections.csv. Når vinduet lukkes, committes og pushes mappen til GitHub
 (--push). Fejler push (fx intet net), ligger den committet lokalt: kør git push senere.
-Positionsstyring: fingeren følger grebet. Hastighedsstyring: grebet bestemmer, hvor hurtigt
-fingeren lukker, afslapning åbner den, og ved tremor står den stille (hastigheder i settings.py).
+Alle tre har hysterese mod flimmer (indstillinger i settings.py):
+  position:  fingeren følger grebet, udglattet over 0,3 s, og flytter sig først ved 10 % ændring
+  velocity:  greb over 0,30 lukker (hurtigere jo hårdere), under 0,15 i 0,3 s åbner, ind imellem
+             står fingeren stille; ved tremor står den også stille
+  threshold: greb over 0,30 i 0,1 s lukker helt, under 0,15 i 0,3 s åbner helt
 Ekstra valg sendes videre, fx: run_velocity_dsp.bat --motor-port COM4   eller   --calibrate
-Uden en gyldig models\gru.pt kører 3 og 4 på DSP og skriver det i vinduet.
+Uden en gyldig models\gru.pt kører 2, 4 og 6 på DSP og skriver det i vinduet.
 
-Sammenlign de fire kombinationer (alle kørsler, metode og styring læses fra session.json):
-.venv\Scripts\python.exe evaluate_injection.py --sessions measurements\*_pos-dsp measurements\*_vel-dsp measurements\*_pos-gru measurements\*_vel-gru --out eval.json
+Sammenlign de seks kombinationer (alle kørsler, metode og styring læses fra session.json):
+.venv\Scripts\python.exe evaluate_injection.py --sessions measurements\*_pos-dsp measurements\*_vel-dsp measurements\*_pos-gru measurements\*_vel-gru measurements\*_thr-dsp measurements\*_thr-gru --out eval.json
 PowerShell udvider ikke *, så skriv mapperne, eller brug: (Get-ChildItem measurements\*_???-???).FullName
 
 Kun vis emg data (ingen optagelse, ingen motor):

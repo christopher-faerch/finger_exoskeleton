@@ -75,9 +75,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help=f"serial port of the motor (default {settings.MOTOR_PORT})")
     parser.add_argument("--control", choices=["position", "velocity", "threshold"],
                         default=settings.MOTOR_CONTROL,
-                        help="with --motor: position (the finger follows the grasp) or velocity "
-                             "(the grasp sets the closing speed, rest opens, tremor holds) or threshold "
-                             "(open or closed, with hysteresis) "
+                        help="with --motor: position (the finger follows the smoothed grasp), "
+                             "velocity (the grasp sets the closing speed, rest opens, in between "
+                             "and during tremor the finger holds) or threshold (open or closed); "
+                             "all three with hysteresis against flicker "
                              f"(default {settings.MOTOR_CONTROL})")
     parser.add_argument("--calibration", type=Path,
                         help="calibration file: used if it fits, written after a calibration "

@@ -8,7 +8,8 @@ import pytest
 
 import settings
 from source.calibration import Activation
-from source.controllers import ThresholdEMGController, VelocityEMGController
+from source.controllers import (ProportionalEMGController, ThresholdEMGController,
+                                VelocityEMGController)
 from source.motor import GraspSignal, connect_motor
 from source.stiffness_controller import State
 from tests.fakes import FakeMotors
@@ -114,7 +115,8 @@ def velocity_controller(hold: bool = False) -> tuple[FakeMotors, VelocityEMGCont
     motors.control_mode = [1, FakeMotors.EXT_POS_CONTROL]
     controller = VelocityEMGController(
         motors, settings.MOTOR_ID, open_pos=settings.OPEN_POS, closed_pos=settings.CLOSED_POS,
-        close_speed=1000.0, open_speed=500.0, deadband=0.1, hold=lambda: hold)
+        close_speed=1000.0, open_speed=500.0, close_above=0.30, open_below=0.15,
+        close_time_s=0.10, open_time_s=0.30, hold=lambda: hold)
     return motors, controller
 
 
@@ -129,17 +131,36 @@ def run_steps(controller: VelocityEMGController, activation: float, seconds: flo
 
 
 def test_velocity_grasp_closes_at_a_speed_set_by_the_grasp() -> None:
-    """Full grasp closes at close_speed, a weaker grasp more slowly, rest opens again."""
+    """Full grasp closes at close_speed after close_time_s, a weaker grasp more slowly,
+    and rest opens again after open_time_s."""
     motors, controller = velocity_controller()
     now = run_steps(controller, 1.0, 0.5)
     full = settings.OPEN_POS - motors.position  # closed lies below open
-    assert full == pytest.approx(0.5 * 1000.0, abs=25)
+    assert full == pytest.approx(0.4 * 1000.0, abs=25)  # 0.1 s waiting, then 0.4 s closing
     motors, weak = velocity_controller()
-    run_steps(weak, 0.55, 0.5)  # (0.55 - 0.1) / 0.9 = half speed
+    now = run_steps(weak, 0.575, 0.5)  # (0.575 - 0.15) / 0.85 = half speed
     assert settings.OPEN_POS - motors.position == pytest.approx(full / 2, abs=25)
     before = motors.position
+    now = run_steps(weak, 0.0, 0.28, start=now)
+    assert motors.position == before  # not relaxed for open_time_s yet: stands still
     run_steps(weak, 0.0, 0.2, start=now)
     assert motors.position > before  # rest: the finger opens
+
+
+def test_velocity_holds_in_the_band_and_never_reverses_on_a_noisy_grip() -> None:
+    """A grip between open_below and close_above holds the finger; a noisy grip only closes."""
+    motors, controller = velocity_controller()
+    now = run_steps(controller, 1.0, 0.5)
+    held = motors.position
+    now = run_steps(controller, 0.22, 2.0, start=now)
+    assert motors.position == held
+    rng = np.random.default_rng(1)
+    positions = []
+    for _ in range(250):  # 5 s of a grip around 0.5 that sometimes dips below open_below
+        controller.step(float(np.clip(rng.normal(0.5, 0.2), 0.0, 1.0)), now)
+        positions.append(motors.position)
+        now += 0.02
+    assert np.all(np.diff(positions) <= 0)  # toward closed (lower ticks) or still, never back
 
 
 def test_velocity_stops_at_closed_and_holds_during_tremor() -> None:
@@ -152,6 +173,39 @@ def test_velocity_stops_at_closed_and_holds_during_tremor() -> None:
     assert motors.position == settings.OPEN_POS
 
 
+def test_position_stands_still_on_a_noisy_held_grip() -> None:
+    """With smoothing and a step, a grip varying 20 % around 0.7 hardly moves the finger,
+    and relaxing still opens it fully."""
+    _, controller = connect_motor("COM0", motors_class=FakeMotors, control="position")
+    rng = np.random.default_rng(2)
+    now, commands = 0.0, []
+    for _ in range(600):  # 12 s, the first 2 s to settle
+        _, _, command = controller.step(float(np.clip(rng.normal(0.7, 0.14), 0.0, 1.0)), now)
+        commands.append(command)
+        now += 0.02
+    steady = np.array(commands[100:])
+    moves = np.count_nonzero(np.diff(steady))
+    assert moves < 0.1 * len(steady)  # still most of the time
+    assert np.ptp(steady) <= 2.5 * settings.POSITION_STEP * abs(
+        settings.CLOSED_POS - settings.OPEN_POS)
+    for _ in range(100):
+        _, _, command = controller.step(0.0, now)
+        now += 0.02
+    assert command == settings.OPEN_POS
+
+
+def test_position_without_hysteresis_follows_every_change() -> None:
+    """smooth_s=0 and step=0 is the old proportional controller."""
+    motors = FakeMotors(position=settings.OPEN_POS)
+    motors.control_mode = [1, FakeMotors.EXT_POS_CONTROL]
+    controller = ProportionalEMGController(
+        motors, settings.MOTOR_ID, open_pos=settings.OPEN_POS, closed_pos=settings.CLOSED_POS,
+        max_speed=1e9, deadband=0.1)
+    _, target, _ = controller.step(0.55, 0.0)
+    halfway = settings.OPEN_POS + 0.5 * (settings.CLOSED_POS - settings.OPEN_POS)
+    assert target == pytest.approx(halfway)
+
+
 def test_connect_builds_the_threshold_controller() -> None:
     """control="threshold" gives the open/closed controller with the thresholds from settings.py."""
     _, controller = connect_motor("COM0", motors_class=FakeMotors, control="threshold")
@@ -161,7 +215,7 @@ def test_connect_builds_the_threshold_controller() -> None:
 
 
 def test_threshold_does_not_flicker_on_a_noisy_held_grip() -> None:
-    """A grip that varies about 20 % around 1.0 keeps the finger closed: the command never reopens."""
+    """A grip that varies about 20 % around 1.0 keeps the finger closed: it never reopens."""
     _, controller = connect_motor("COM0", motors_class=FakeMotors, control="threshold")
     rng = np.random.default_rng(0)
     now = 0.0

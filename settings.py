@@ -103,8 +103,22 @@ THRESHOLD_ON = 0.30
 THRESHOLD_OFF = 0.15
 THRESHOLD_ON_TIME_S = 0.10
 THRESHOLD_OFF_TIME_S = 0.30
+# Position control against flicker: the grasp is low-pass filtered (time constant SMOOTH_S)
+# and the finger only moves when the filtered grasp has changed by STEP (share of open-closed)
+# since its last move. Chosen by replaying 6 recordings (2026-11-13 and 2026-11-27): direction
+# changes 62 -> 15 per minute (threshold control: 12, the real grips), 1 s ripple of a held
+# grip 14 % -> 3 % of the range, opening 0.16 s.
+POSITION_SMOOTH_S = 0.3
+POSITION_STEP = 0.10
 VELOCITY_CLOSE_SPEED = 1000.0  # ticks per second at full grasp (velocity control)
 VELOCITY_OPEN_SPEED = 1000.0  # ticks per second when the hand relaxes (velocity control)
+# Velocity control hysteresis, as threshold control: close only while the grasp has been above
+# CLOSE_ABOVE for CLOSE_TIME_S (faster the harder the grip), open only once it has been below
+# OPEN_BELOW for OPEN_TIME_S, and in between the finger stands still.
+VELOCITY_CLOSE_ABOVE = 0.30
+VELOCITY_OPEN_BELOW = 0.15
+VELOCITY_CLOSE_TIME_S = 0.10
+VELOCITY_OPEN_TIME_S = 0.30
 
 # --- Test signal: noise and simulated tremor over the EMG (see source/injection.py) -------
 # Key 'k' in the live window (k + Enter with --headless) switches it on and off.

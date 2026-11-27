@@ -15,8 +15,11 @@ slow serial bus can never hold up the EMG. GraspSignal decides what it sees:
                   detected: the finger holds its position instead of following the tremor
 
 With velocity control (--control velocity) VelocityEMGController uses the same
-signal as a speed: a grasp closes the finger, faster the harder the grip, rest
-opens it, and while STIFFENED the finger stands still.
+signal as a speed: a grasp above VELOCITY_CLOSE_ABOVE closes the finger, faster the
+harder the grip, one below VELOCITY_OPEN_BELOW opens it, and in between and while
+STIFFENED the finger stands still. Position control smooths the grasp and only moves
+in steps of POSITION_STEP; threshold control is open or closed. All three thus have
+hysteresis against the ripple of a held grip.
 
 With a log path (run_emg.py --out) MotorThread writes motor.csv in the session folder,
 one row per motor step (MOTOR_RATE_HZ): see MOTOR_LOG_COLUMNS. time_s is the stream time
@@ -209,13 +212,14 @@ def connect_motor(port: str, motors_class: Any = None, control: str = "position"
                          f"OPEN_POS and CLOSED_POS again. Torque was left off.")
     motors.enable_torque([motor_id])
     common = {"open_pos": open_pos, "closed_pos": closed_pos, "rate_hz": settings.MOTOR_RATE_HZ,
-              "signal_timeout_s": settings.SIGNAL_TIMEOUT_S, "deadband": settings.DEADBAND,
-              "gamma": settings.GAMMA}
+              "signal_timeout_s": settings.SIGNAL_TIMEOUT_S, "gamma": settings.GAMMA}
     controller: Any
     if control == "velocity":
         controller = VelocityEMGController(
             motors, motor_id, close_speed=settings.VELOCITY_CLOSE_SPEED,
-            open_speed=settings.VELOCITY_OPEN_SPEED, hold=hold, **common)
+            open_speed=settings.VELOCITY_OPEN_SPEED, close_above=settings.VELOCITY_CLOSE_ABOVE,
+            open_below=settings.VELOCITY_OPEN_BELOW, close_time_s=settings.VELOCITY_CLOSE_TIME_S,
+            open_time_s=settings.VELOCITY_OPEN_TIME_S, hold=hold, **common)
     elif control == "threshold":
         controller = ThresholdEMGController(
             motors, motor_id, open_pos=open_pos, closed_pos=closed_pos,
@@ -224,6 +228,7 @@ def connect_motor(port: str, motors_class: Any = None, control: str = "position"
             off_threshold=settings.THRESHOLD_OFF, on_dwell_s=settings.THRESHOLD_ON_TIME_S,
             off_dwell_s=settings.THRESHOLD_OFF_TIME_S, mode="hold")
     else:
-        controller = ProportionalEMGController(motors, motor_id, max_speed=settings.MAX_SPEED,
-                                               **common)
+        controller = ProportionalEMGController(
+            motors, motor_id, max_speed=settings.MAX_SPEED, deadband=settings.DEADBAND,
+            smooth_s=settings.POSITION_SMOOTH_S, step=settings.POSITION_STEP, **common)
     return motors, controller

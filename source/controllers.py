@@ -167,17 +167,39 @@ class ProportionalEMGController(EMGPositionController):
                of the range is rescaled to 0..1
     gamma    : shaping exponent. 1 = linear, >1 = finer control at low effort,
                <1 = more sensitive at low effort
-    The closing speed is limited by max_speed, which also smooths the signal.
+    smooth_s : time constant (s) of a low-pass filter on the shaped activation;
+               0 = none. It averages out the ripple of a held grip
+    step     : hysteresis on the target, as a share of open-closed (0..1): the
+               target only moves when the filtered activation has changed by at
+               least this much since the last move, so a held grip stands still.
+               When the activation drops to rest the target goes fully open
+    The closing speed is limited by max_speed.
     """
 
-    def __init__(self, *args, deadband=0.1, gamma=1.0, **kwargs):
+    def __init__(self, *args, deadband=0.1, gamma=1.0, smooth_s=0.0, step=0.0, **kwargs):
         super().__init__(*args, **kwargs)
         self.deadband = deadband
         self.gamma = gamma
+        self.smooth_s = smooth_s
+        self.step_size = step
+        self.smoothed = None   # the filtered activation (0..1)
+        self.level = None      # the activation the target is set to now (0..1)
+        self._t_prev = None
 
     def compute_target(self, activation, now):
-        x = np.clip((activation - self.deadband) / (1.0 - self.deadband), 0.0, 1.0)
-        return self.open_pos + (x ** self.gamma) * (self.closed_pos - self.open_pos)
+        x = float(np.clip((activation - self.deadband) / (1.0 - self.deadband), 0.0, 1.0))
+        x = x ** self.gamma
+        dt = self.period if self._t_prev is None else min(max(now - self._t_prev, 0.0), 0.1)
+        self._t_prev = now
+        if self.smoothed is None or self.smooth_s <= 0:
+            self.smoothed = x
+        else:
+            self.smoothed += (1.0 - math.exp(-dt / self.smooth_s)) * (x - self.smoothed)
+        if self.level is None or abs(self.smoothed - self.level) >= self.step_size:
+            self.level = self.smoothed
+        elif x == 0.0 and self.smoothed < self.step_size:
+            self.level = 0.0   # at rest: all the way open, not stuck just short of it
+        return self.open_pos + self.level * (self.closed_pos - self.open_pos)
 
 
 class ThresholdEMGController(EMGPositionController):
@@ -245,43 +267,60 @@ class ThresholdEMGController(EMGPositionController):
 class VelocityEMGController(EMGPositionController):
     """Velocity (rate) control: the activation sets how fast the finger moves.
 
-        activation above the deadband -> close at shape(activation) * close_speed
-        activation at rest            -> open at open_speed
-        hold() is True                -> stand still (e.g. while tremor is detected)
+        activation >= close_above for close_time_s -> close at shape(activation) * close_speed
+        activation <= open_below for open_time_s   -> open at open_speed
+        in between, or not long enough yet         -> stand still
+        hold() is True                             -> stand still (e.g. tremor detected)
+
+    The band between open_below and close_above is the hysteresis: the ripple of
+    a held grip never turns closing into opening, and a grip in the band holds
+    the finger where it is. shape(a) = ((a - open_below) / (1 - open_below))^gamma.
 
     The integrated position is sent as a goal position, so the motor stays in
     (extended) position mode and the finger cannot run past open or closed.
 
     close_speed, open_speed : ticks/s at full activation and when opening
     hold                    : optional callable; True keeps the finger where it is
-    deadband, gamma         : as in ProportionalEMGController
     """
 
-    def __init__(self, *args, close_speed=1000.0, open_speed=1000.0, deadband=0.1,
-                 gamma=1.0, hold=None, **kwargs):
+    def __init__(self, *args, close_speed=1000.0, open_speed=1000.0, close_above=0.30,
+                 open_below=0.15, close_time_s=0.10, open_time_s=0.30, gamma=1.0,
+                 hold=None, **kwargs):
+        assert close_above > open_below, "close_above must be above open_below"
         kwargs.setdefault("max_speed", max(close_speed, open_speed))
         super().__init__(*args, **kwargs)
         self.close_speed = close_speed
         self.open_speed = open_speed
-        self.deadband = deadband
+        self.close_above = close_above
+        self.open_below = open_below
+        self.close_time_s = close_time_s
+        self.open_time_s = open_time_s
         self.gamma = gamma
         self.hold = hold
         self.position = None   # the integrated finger position (ticks)
         self.speed = 0.0       # last speed toward closed (ticks/s, negative = opening)
         self._t_prev = None
+        self._above_since = None
+        self._below_since = None
 
     def compute_target(self, activation, now):
         if self.position is None:
             self.position = self.command
         dt = self.period if self._t_prev is None else min(max(now - self._t_prev, 0.0), 0.1)
         self._t_prev = now
-        x = np.clip((activation - self.deadband) / (1.0 - self.deadband), 0.0, 1.0)
+        self._above_since = (self._above_since if self._above_since is not None else now) \
+            if activation >= self.close_above else None
+        self._below_since = (self._below_since if self._below_since is not None else now) \
+            if activation <= self.open_below else None
+        x = np.clip((activation - self.open_below) / (1.0 - self.open_below), 0.0, 1.0)
         if self.hold is not None and self.hold():
             self.speed = 0.0
-        elif x > 0.0:
+        elif self._above_since is not None and now - self._above_since >= self.close_time_s:
             self.speed = (x ** self.gamma) * self.close_speed
-        else:
+        elif self._below_since is not None and now - self._below_since >= self.open_time_s:
             self.speed = -self.open_speed
+        else:
+            self.speed = 0.0
         direction = 1.0 if self.closed_pos > self.open_pos else -1.0
         self.position = float(np.clip(self.position + direction * self.speed * dt,
                                       self.lo, self.hi))

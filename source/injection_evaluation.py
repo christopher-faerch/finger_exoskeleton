@@ -264,6 +264,12 @@ def episode_masks(times: np.ndarray, episodes: list[Episode]) -> tuple[np.ndarra
     return inside, affected
 
 
+def median_of(episodes: list[dict], key: str) -> float | None:
+    """The median of one per-episode value over the episodes that have it."""
+    values = [episode[key] for episode in episodes if key in episode]
+    return float(np.median(values)) if values else None
+
+
 def evaluate_run(run: Run, episodes: list[Episode], reference: Run | None = None,
                  labels: np.ndarray | None = None) -> dict:
     """All metrics of one replay; see the top of this file."""
@@ -271,8 +277,6 @@ def evaluate_run(run: Run, episodes: list[Episode], reference: Run | None = None
         reference = None
     per_episode = [episode_metrics(run, episode, reference) for episode in episodes]
     gripping = [episode for episode in per_episode if episode["gripping"]]
-    latencies = [episode["latency_s"] for episode in gripping if "latency_s" in episode]
-    releases = [episode["release_s"] for episode in gripping if "release_s" in episode]
 
     inside, affected = episode_masks(run.times, episodes)
     stiff = np.array([state == State.STIFFENED for state in run.states])
@@ -289,8 +293,8 @@ def evaluate_run(run: Run, episodes: list[Episode], reference: Run | None = None
                            if gripping else None),
         "stiffened_at_rest": sum(episode["stiffened"] for episode in per_episode
                                  if not episode["gripping"]),
-        "median_latency_s": float(np.median(latencies)) if latencies else None,
-        "median_release_s": float(np.median(releases)) if releases else None,
+        "median_latency_s": median_of(gripping, "latency_s"),
+        "median_release_s": median_of(gripping, "release_s"),
         "false_stiffen_per_minute": (float(np.sum(~affected[onsets]) / armed_minutes)
                                      if armed_minutes > 0 else None),
         "armed_minutes_outside": float(armed_minutes),
