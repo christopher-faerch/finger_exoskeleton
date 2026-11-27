@@ -224,3 +224,7 @@ calibration*.json
 
 # Trained GRU models (make them again with train_gru.py)
 models/
+
+# The report (Overleaf) is kept outside this repository
+report/
+report.zip
